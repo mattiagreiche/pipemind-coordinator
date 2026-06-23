@@ -1,0 +1,332 @@
+{
+  "name": "01c — F-03: Delivery Executor (Sub-Workflow)",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Delivery Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "parameters": {}
+    },
+    {
+      "id": "fetch-draft",
+      "name": "Fetch Approved Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [250, 300],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT draft_id, content_type,\n       COALESCE(edited_text, draft_text) AS final_text,\n       context_json\nFROM pipemind.approval_drafts\nWHERE draft_id = $1::uuid AND status = 'approved' AND boundary_audit_passed = TRUE;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Delivery Input').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-draft-found",
+      "name": "Draft Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [500, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "route-content-type",
+      "name": "Route by Content Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [750, 200],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "report",   "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "report" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "qa_reply", "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "qa_reply" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "welcome",  "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "welcome" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "dedup-drive",
+      "name": "Dedup Drive",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1000, 50],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "additionalFields": {
+          "queryParams": "={{ [ 'drive_save:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-drive-new",
+      "name": "Drive Not Yet Saved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 50],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "save-drive",
+      "name": "Save to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1500, 0],
+      "credentials": { "googleDriveOAuth2Api": { "id": "pipemindGoogleDrive", "name": "Pipemind Google Drive" } },
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ 'progress-report-' + new Date().toISOString().split('T')[0] + '-' + $('Fetch Approved Draft').item.json.draft_id.slice(0,8) + '.txt' }}",
+        "driveId": { "mode": "id", "value": "={{ $env.DRIVE_FOLDER_ID }}" },
+        "folderId": { "mode": "id", "value": "={{ $env.DRIVE_FOLDER_ID }}" },
+        "binaryData": false,
+        "textContent": "={{ $('Fetch Approved Draft').item.json.final_text }}"
+      }
+    },
+    {
+      "id": "log-drive",
+      "name": "Log Drive Delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 0],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'drive_save', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'drive_save:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "dedup-gmail",
+      "name": "Dedup Gmail",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 0],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "additionalFields": {
+          "queryParams": "={{ [ 'gmail_send:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-gmail-new",
+      "name": "Gmail Not Yet Sent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2250, 0],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "send-gmail",
+      "name": "Send Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [2500, 0],
+      "credentials": { "gmailOAuth2": { "id": "pipemindGmail", "name": "Pipemind Gmail" } },
+      "parameters": {
+        "operation": "send",
+        "toList": "={{ $env.CLIENT_EMAIL }}",
+        "subject": "={{ 'Project Progress Update — ' + new Date().toISOString().split('T')[0] }}",
+        "message": "={{ $('Fetch Approved Draft').item.json.final_text }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "log-gmail",
+      "name": "Log Gmail Delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2750, 0],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'gmail_send', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'gmail_send:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "dedup-discord-qa",
+      "name": "Dedup Discord QA",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1000, 300],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "additionalFields": {
+          "queryParams": "={{ [ 'discord_qa:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-qa-new",
+      "name": "QA Not Yet Sent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "post-qa",
+      "name": "Post QA Reply",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1500, 250],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $('Fetch Approved Draft').item.json.context_json?.qa_channel_id }}",
+        "content": "={{ $('Fetch Approved Draft').item.json.final_text }}"
+      }
+    },
+    {
+      "id": "log-qa",
+      "name": "Log QA Delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 250],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_qa', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_qa:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "dedup-welcome",
+      "name": "Dedup Welcome",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1000, 550],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "additionalFields": {
+          "queryParams": "={{ [ 'discord_welcome:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-welcome-new",
+      "name": "Welcome Not Yet Sent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 550],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "post-welcome",
+      "name": "Post Welcome",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1500, 500],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $('Fetch Approved Draft').item.json.context_json?.qa_channel_id }}",
+        "content": "={{ $('Fetch Approved Draft').item.json.final_text }}"
+      }
+    },
+    {
+      "id": "log-welcome",
+      "name": "Log Welcome Delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 500],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_welcome', $2)\nON CONFLICT (dedup_key) DO NOTHING;\n\nINSERT INTO pipemind.client_welcomed (client_discord_id)\nVALUES ($3)\nON CONFLICT (client_discord_id) DO NOTHING;",
+        "additionalFields": {
+          "queryParams": "={{ [\n  $('Fetch Approved Draft').item.json.draft_id,\n  'discord_welcome:' + $('Fetch Approved Draft').item.json.draft_id,\n  $('Fetch Approved Draft').item.json.context_json?.client_discord_id\n] }}"
+        }
+      }
+    },
+    {
+      "id": "no-op-not-found",
+      "name": "Skip — Draft Not Found",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [500, 500],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Delivery Input":         { "main": [[{ "node": "Fetch Approved Draft",     "type": "main", "index": 0 }]] },
+    "Fetch Approved Draft":   { "main": [[{ "node": "Draft Found?",             "type": "main", "index": 0 }]] },
+    "Draft Found?":           { "main": [
+      [{ "node": "Route by Content Type",   "type": "main", "index": 0 }],
+      [{ "node": "Skip — Draft Not Found",  "type": "main", "index": 0 }]
+    ]},
+    "Route by Content Type": {
+      "report":   [[{ "node": "Dedup Drive",      "type": "main", "index": 0 }]],
+      "qa_reply": [[{ "node": "Dedup Discord QA", "type": "main", "index": 0 }]],
+      "welcome":  [[{ "node": "Dedup Welcome",    "type": "main", "index": 0 }]]
+    },
+    "Dedup Drive":            { "main": [[{ "node": "Drive Not Yet Saved?",     "type": "main", "index": 0 }]] },
+    "Drive Not Yet Saved?":   { "main": [
+      [{ "node": "Save to Drive",           "type": "main", "index": 0 }],
+      [{ "node": "Dedup Gmail",             "type": "main", "index": 0 }]
+    ]},
+    "Save to Drive":          { "main": [[{ "node": "Log Drive Delivered",      "type": "main", "index": 0 }]] },
+    "Log Drive Delivered":    { "main": [[{ "node": "Dedup Gmail",              "type": "main", "index": 0 }]] },
+    "Dedup Gmail":            { "main": [[{ "node": "Gmail Not Yet Sent?",      "type": "main", "index": 0 }]] },
+    "Gmail Not Yet Sent?":    { "main": [
+      [{ "node": "Send Gmail",              "type": "main", "index": 0 }],
+      []
+    ]},
+    "Send Gmail":             { "main": [[{ "node": "Log Gmail Delivered",      "type": "main", "index": 0 }]] },
+    "Dedup Discord QA":       { "main": [[{ "node": "QA Not Yet Sent?",         "type": "main", "index": 0 }]] },
+    "QA Not Yet Sent?":       { "main": [
+      [{ "node": "Post QA Reply",           "type": "main", "index": 0 }],
+      []
+    ]},
+    "Post QA Reply":          { "main": [[{ "node": "Log QA Delivered",         "type": "main", "index": 0 }]] },
+    "Dedup Welcome":          { "main": [[{ "node": "Welcome Not Yet Sent?",    "type": "main", "index": 0 }]] },
+    "Welcome Not Yet Sent?":  { "main": [
+      [{ "node": "Post Welcome",            "type": "main", "index": 0 }],
+      []
+    ]},
+    "Post Welcome":           { "main": [[{ "node": "Log Welcome Delivered",    "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "meta": { "instanceId": "pipemind" },
+  "tags": [{ "name": "approval-gate" }, { "name": "sub-workflow" }, { "name": "p0" }]
+}

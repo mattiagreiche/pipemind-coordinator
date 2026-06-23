@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS pipemind.approval_drafts (
                                     AND NOT (context_json ? 'commit_count')
                                     AND NOT (context_json ? 'hours_logged')
                                     AND NOT (context_json ? 'clockify_user_id')
+                                    AND NOT (context_json ? 'standup_text')
+                                    AND NOT (context_json ? 'standup_excerpt')
                                 )
                             ),
 
@@ -139,10 +141,10 @@ CREATE TABLE IF NOT EXISTS pipemind.delivered_actions (
     action_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     draft_id        UUID NOT NULL                           -- MED-02: NOT NULL, every delivery needs an audit trail
                         REFERENCES pipemind.approval_drafts (draft_id),
-    action_type     TEXT NOT NULL CHECK (action_type IN ('gmail_send', 'drive_save', 'discord_post', 'clockify_write')),
-    -- Format enforced: <action_type>:<draft_uuid> (HIGH-01)
+    action_type     TEXT NOT NULL CHECK (action_type IN ('gmail_send', 'drive_save', 'discord_qa', 'discord_welcome', 'clockify_write')),
+    -- Format enforced: <action_type>:<draft_uuid> (HIGH-01, MED-04)
     dedup_key       TEXT NOT NULL UNIQUE
-                        CHECK (dedup_key ~ '^(gmail_send|drive_save|discord_post|clockify_write):[0-9a-f\-]{36}$'),
+                        CHECK (dedup_key ~ '^(gmail_send|drive_save|discord_qa|discord_welcome|clockify_write):[0-9a-f\-]{36}$'),
     delivered_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

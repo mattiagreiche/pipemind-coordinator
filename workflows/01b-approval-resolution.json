@@ -1,0 +1,277 @@
+{
+  "name": "01b — F-03: Approval Resolution Listener",
+  "nodes": [
+    {
+      "id": "discord-trigger",
+      "name": "Discord Events",
+      "type": "n8n-nodes-base.discordTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "events": ["messageReactionAdd", "messageCreate"]
+      }
+    },
+    {
+      "id": "classify-event",
+      "name": "Classify Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "parameters": {
+        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '✅': 'approve', '✏️': 'edit', '❌': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text reply (edit flow)\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  if (!referenced_id) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'message',\n    action: 'edit_reply',\n    message_id: referenced_id,\n    actor_discord_id: d.author?.id,\n    channel_id: d.channel_id,\n    content: d.content\n  }}];\n}\n\nreturn [{ json: { skip: true } }];"
+      }
+    },
+    {
+      "id": "if-skip",
+      "name": "Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [500, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.skip }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "lookup-draft",
+      "name": "Lookup Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, 200],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT draft_id, status, expires_at, approver_discord_id,\n       feature_tag, content_type, discord_channel_id, context_json\nFROM pipemind.approval_drafts\nWHERE discord_message_id = $1\nLIMIT 1;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.message_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-valid-draft",
+      "name": "Pending & Right Actor?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1000, 200],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            { "leftValue": "={{ $json.status }}", "rightValue": "pending", "operator": { "type": "string", "operation": "equals" } },
+            { "leftValue": "={{ $json.approver_discord_id }}", "rightValue": "={{ $('Classify Event').item.json.actor_discord_id }}", "operator": { "type": "string", "operation": "equals" } }
+          ]
+        }
+      }
+    },
+    {
+      "id": "if-expired",
+      "name": "Expired?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 100],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ new Date($json.expires_at) < new Date() }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "notify-expired",
+      "name": "Notify Expired",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1500, 0],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $('Lookup Draft').item.json.discord_channel_id }}",
+        "content": "⏰ This draft has expired. Re-trigger the workflow to create a new one."
+      }
+    },
+    {
+      "id": "route-action",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1500, 250],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.action }}", "rightValue": "approve",    "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "approve" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.action }}", "rightValue": "reject",     "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "reject" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.action }}", "rightValue": "edit",       "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "edit" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.action }}", "rightValue": "edit_reply", "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "edit_reply" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "mark-approved",
+      "name": "Mark Approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 50],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.approval_drafts\nSET status = 'approved', settled_at = now()\nWHERE draft_id = $1::uuid AND status = 'pending'\nRETURNING draft_id;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Lookup Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-got-lock",
+      "name": "Got Approval Lock?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2000, 50],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "call-delivery",
+      "name": "Call Delivery Executor",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2250, 50],
+      "parameters": {
+        "options": { "workflowName": "01c — F-03: Delivery Executor (Sub-Workflow)" },
+        "mode": "each",
+        "workflowInputs": {
+          "values": [{ "name": "draft_id", "value": "={{ $json.draft_id }}" }]
+        }
+      }
+    },
+    {
+      "id": "mark-rejected",
+      "name": "Mark Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 250],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.approval_drafts\nSET status = 'rejected', settled_at = now()\nWHERE draft_id = $1::uuid;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Lookup Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "notify-rejected",
+      "name": "Notify Rejected",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [2000, 250],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $('Lookup Draft').item.json.discord_channel_id }}",
+        "content": "❌ Draft rejected. Nothing was sent."
+      }
+    },
+    {
+      "id": "prompt-edit",
+      "name": "Prompt for Edit",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1750, 450],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $('Lookup Draft').item.json.discord_channel_id }}",
+        "content": "={{ '✏️ **Edit mode** — reply to this message with your edited version.\\nYour reply replaces the draft. React ✅ on the reply to confirm.\\n`Draft ID: ' + $('Lookup Draft').item.json.draft_id + '`' }}"
+      }
+    },
+    {
+      "id": "sanitize-edit",
+      "name": "Sanitize Edit Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1750, 650],
+      "parameters": {
+        "jsCode": "const evt = $('Classify Event').item.json;\nconst draft = $('Lookup Draft').item.json;\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content — strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, draft_id: draft.draft_id } }];"
+      }
+    },
+    {
+      "id": "if-edit-author-valid",
+      "name": "Edit Author Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2000, 650],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.skip }}", "rightValue": false, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "save-edit",
+      "name": "Save Edited Text",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2250, 600],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.approval_drafts\nSET edited_text = $1,\n    discord_message_id = $2\nWHERE draft_id = $3::uuid;",
+        "additionalFields": {
+          "queryParams": "={{ [\n  $json.safe_content,\n  $json.message_id,\n  $json.draft_id\n] }}"
+        }
+      }
+    },
+    {
+      "id": "no-op-skip",
+      "name": "Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [500, 500],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Discord Events":         { "main": [[{ "node": "Classify Event",          "type": "main", "index": 0 }]] },
+    "Classify Event":         { "main": [[{ "node": "Skip?",                   "type": "main", "index": 0 }]] },
+    "Skip?":                  { "main": [
+      [{ "node": "Skip",                    "type": "main", "index": 0 }],
+      [{ "node": "Lookup Draft",            "type": "main", "index": 0 }]
+    ]},
+    "Lookup Draft":           { "main": [[{ "node": "Pending & Right Actor?",  "type": "main", "index": 0 }]] },
+    "Pending & Right Actor?": { "main": [
+      [{ "node": "Expired?",                "type": "main", "index": 0 }],
+      [{ "node": "Skip",                    "type": "main", "index": 0 }]
+    ]},
+    "Expired?":               { "main": [
+      [{ "node": "Notify Expired",          "type": "main", "index": 0 }],
+      [{ "node": "Route Action",            "type": "main", "index": 0 }]
+    ]},
+    "Route Action": {
+      "approve":    [[{ "node": "Mark Approved",    "type": "main", "index": 0 }]],
+      "reject":     [[{ "node": "Mark Rejected",    "type": "main", "index": 0 }]],
+      "edit":       [[{ "node": "Prompt for Edit",  "type": "main", "index": 0 }]],
+      "edit_reply": [[{ "node": "Sanitize Edit Content", "type": "main", "index": 0 }]]
+    },
+    "Mark Approved":          { "main": [[{ "node": "Got Approval Lock?",      "type": "main", "index": 0 }]] },
+    "Got Approval Lock?":     { "main": [
+      [{ "node": "Call Delivery Executor",  "type": "main", "index": 0 }],
+      [{ "node": "Skip",                    "type": "main", "index": 0 }]
+    ]},
+    "Mark Rejected":          { "main": [[{ "node": "Notify Rejected",         "type": "main", "index": 0 }]] },
+    "Sanitize Edit Content":  { "main": [[{ "node": "Edit Author Valid?",       "type": "main", "index": 0 }]] },
+    "Edit Author Valid?":     { "main": [
+      [{ "node": "Save Edited Text",        "type": "main", "index": 0 }],
+      [{ "node": "Skip",                    "type": "main", "index": 0 }]
+    ]}
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "meta": { "instanceId": "pipemind" },
+  "tags": [{ "name": "approval-gate" }, { "name": "p0" }]
+}
