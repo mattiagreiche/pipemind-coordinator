@@ -49,3 +49,37 @@ op run --env-file=.env -- docker compose up -d
 - **Phase 1:** memory layer, standup reading, time-logging helper
 
 When in doubt: _"Does this help the person, and would they be happy knowing it runs?"_ If it feels like surveillance, stop and ask your lead.
+
+---
+
+## Team split (2 devs)
+
+### Dev 1 — Foundation
+Builds what Dev 2 needs to stand on. Start here.
+
+**P0**
+- Infrastructure : Docker Compose, Postgres, Ollama, 1Password CLI
+- F-03 : Approval Gate (cross-cutting — tout le monde en dépend)
+- F-08 : Aggregation Boundary (cross-cutting — tout le monde en dépend)
+- F-16 : Team Lead Interaction Surface (Discord approval channel)
+
+**P1**
+- F-14 : Persistent Memory (Postgres)
+- F-04 : Standup Transcript Ingestion
+
+### Dev 2 — Features client et équipe
+Commence dès que F-03 et F-08 sont posés par Dev 1.
+
+**P0**
+- F-01 : Client Progress Report (draft → approve → deliver)
+- F-02 : Client Question Answering
+- F-15 : Client Welcome Message
+- F-17 : Developer Project-Status Query
+
+**P1**
+- F-05 : Gentle Missing-Update Check-In
+- F-07 : Time-Logging Helper
+
+---
+
+> **Règle de coordination** : Dev 2 ne touche pas à l'approval gate ni à l'aggregation boundary — ce sont les briques de Dev 1. Si un comportement semble manquer, ouvrir une discussion plutôt que de le réimplémenter.
