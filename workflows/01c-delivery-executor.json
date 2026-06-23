@@ -272,9 +272,24 @@
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_welcome', $2)\nON CONFLICT (dedup_key) DO NOTHING;\n\nINSERT INTO pipemind.client_welcomed (client_discord_id)\nVALUES ($3)\nON CONFLICT (client_discord_id) DO NOTHING;",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_welcome', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
         "additionalFields": {
-          "queryParams": "={{ [\n  $('Fetch Approved Draft').item.json.draft_id,\n  'discord_welcome:' + $('Fetch Approved Draft').item.json.draft_id,\n  $('Fetch Approved Draft').item.json.context_json?.client_discord_id\n] }}"
+          "queryParams": "={{ [\n  $('Fetch Approved Draft').item.json.draft_id,\n  'discord_welcome:' + $('Fetch Approved Draft').item.json.draft_id\n] }}"
+        }
+      }
+    },
+    {
+      "id": "log-client-welcomed",
+      "name": "Log Client Welcomed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 500],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.client_welcomed (client_discord_id)\nVALUES ($1)\nON CONFLICT (client_discord_id) DO NOTHING;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Fetch Approved Draft').item.json.context_json?.client_discord_id ] }}"
         }
       }
     },
@@ -323,7 +338,8 @@
       [{ "node": "Post Welcome",            "type": "main", "index": 0 }],
       []
     ]},
-    "Post Welcome":           { "main": [[{ "node": "Log Welcome Delivered",    "type": "main", "index": 0 }]] }
+    "Post Welcome":           { "main": [[{ "node": "Log Welcome Delivered",    "type": "main", "index": 0 }]] },
+    "Log Welcome Delivered":  { "main": [[{ "node": "Log Client Welcomed",      "type": "main", "index": 0 }]] }
   },
   "active": true,
   "settings": { "executionOrder": "v1" },

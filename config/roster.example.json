@@ -17,6 +17,7 @@
     }
   ],
   "client": {
+    "name": "Client Name",
     "discord_id": "444444444444444444",
     "discord_channel_id": "555555555555555555"
   }
