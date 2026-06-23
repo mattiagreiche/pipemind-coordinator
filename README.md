@@ -52,34 +52,12 @@ When in doubt: _"Does this help the person, and would they be happy knowing it r
 
 ---
 
-## Team split (2 devs)
+## Implementation order
 
-### Dev 1 — Foundation
-Builds what Dev 2 needs to stand on. Start here.
-
-**P0**
-- Infrastructure : Docker Compose, Postgres, Ollama, 1Password CLI
-- F-03 : Approval Gate (cross-cutting — tout le monde en dépend)
-- F-08 : Aggregation Boundary (cross-cutting — tout le monde en dépend)
-- F-16 : Team Lead Interaction Surface (Discord approval channel)
-
-**P1**
-- F-14 : Persistent Memory (Postgres)
-- F-04 : Standup Transcript Ingestion
-
-### Dev 2 — Features client et équipe
-Commence dès que F-03 et F-08 sont posés par Dev 1.
-
-**P0**
-- F-01 : Client Progress Report (draft → approve → deliver)
-- F-02 : Client Question Answering
-- F-15 : Client Welcome Message
-- F-17 : Developer Project-Status Query
-
-**P1**
-- F-05 : Gentle Missing-Update Check-In
-- F-07 : Time-Logging Helper
-
----
-
-> **Règle de coordination** : Dev 2 ne touche pas à l'approval gate ni à l'aggregation boundary — ce sont les briques de Dev 1. Si un comportement semble manquer, ouvrir une discussion plutôt que de le réimplémenter.
+1. **Infrastructure** — Docker Compose, Postgres, Ollama, 1Password CLI
+2. **F-03 Approval Gate** — cross-cutting foundation; every irreversible action flows through it
+3. **F-08 Aggregation Boundary** — enforces privacy rules before anything reaches the lead or client
+4. **F-16 Team Lead Interaction** — Discord approval channel
+5. **F-01 Client Progress Report** — first end-to-end visible feature (draft → approve → deliver)
+6. **F-02 Client Q&A · F-15 Client Welcome · F-17 Developer Queries**
+7. **P1** — F-14 Persistent Memory, F-04 Standup Ingestion, F-05 Check-Ins, F-07 Time-Logging Helper
