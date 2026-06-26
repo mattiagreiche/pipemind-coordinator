@@ -1,0 +1,306 @@
+{
+  "name": "03 — F-16: Team Lead Interaction",
+  "nodes": [
+    {
+      "id": "discord-trigger",
+      "name": "Discord Events",
+      "type": "n8n-nodes-base.discordTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": { "events": ["messageCreate"] }
+    },
+    {
+      "id": "filter-message",
+      "name": "Filter Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "parameters": {
+        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\nif (event.t !== 'MESSAGE_CREATE' && event.type !== 0) {\n  return [{ json: { skip: true } }];\n}\nif (String(d.channel_id) !== String($env.TEAM_LEAD_APPROVAL_CHANNEL_ID)) {\n  return [{ json: { skip: true } }];\n}\n// M-02: ignore bot accounts and webhook-sourced messages\nif (d.author?.bot || d.webhook_id) {\n  return [{ json: { skip: true } }];\n}\nconst content = String(d.content || '').trim();\nif (!content) {\n  return [{ json: { skip: true } }];\n}\nreturn [{ json: {\n  skip: false,\n  content,\n  author_id: d.author?.id,\n  channel_id: d.channel_id,\n  message_id: d.id\n} }];"
+      }
+    },
+    {
+      "id": "if-skip",
+      "name": "Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [500, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.skip }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "fetch-roster",
+      "name": "Fetch Roster",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, 200],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name, discord_id, role FROM pipemind.roster WHERE active = true AND role != 'client';"
+      }
+    },
+    {
+      "id": "verify-tl",
+      "name": "Verify TL Identity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 200],
+      "parameters": {
+        "jsCode": "// C-01: Only the Team Lead (role=team_lead) may interact with this workflow\nconst authorId = String($('Filter Message').item.json.author_id);\nconst rosterRows = $('Fetch Roster').all();\nconst tl = rosterRows.find(r => r.json.role === 'team_lead');\n\nif (!tl || String(tl.json.discord_id) !== authorId) {\n  return [{ json: { tlVerified: false } }];\n}\nreturn [{ json: { tlVerified: true } }];"
+      }
+    },
+    {
+      "id": "if-tl-verified",
+      "name": "TL Verified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 200],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.tlVerified }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "classify-intent",
+      "name": "Classify Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 200],
+      "parameters": {
+        "jsCode": "const msg_ctx = $('Filter Message').item.json;\nconst rosterRows = $('Fetch Roster').all();\nconst msg = msg_ctx.content.trim();\n\n// C-02/M-03: normalize + word-boundary (consistent with F-08)\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst msgNorm = normalize(msg);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\n// Named individual detection (no length gate — handles short names)\nlet asksForNamed = false;\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/\\s+/).filter(p => p.length > 0);\n  for (const part of parts) {\n    if (hasWordBoundary(msgNorm, part)) {\n      asksForNamed = true;\n      break;\n    }\n  }\n  if (asksForNamed) break;\n}\n\nconst reportKeywords = ['report', 'rapport', 'generate', 'weekly', 'status report', 'genere'];\nconst isReportRequest = reportKeywords.some(kw => msgNorm.includes(kw));\n\nconst questionIndicators =\n  msg.endsWith('?') ||\n  /\\b(how|status|quel|comment|blocked|progress|blocker|update)\\b/.test(msgNorm);\nconst isStatusQuestion = !isReportRequest && questionIndicators;\n\nlet intent;\nif (isReportRequest) intent = 'report_request';\nelse if (isStatusQuestion) intent = 'status_question';\nelse intent = 'unknown';\n\nreturn [{ json: {\n  intent,\n  asksForNamed,\n  content: msg_ctx.content,\n  author_id: msg_ctx.author_id,\n  channel_id: msg_ctx.channel_id,\n  message_id: msg_ctx.message_id\n} }];"
+      }
+    },
+    {
+      "id": "if-report-request",
+      "name": "Report Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1750, 200],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.intent }}", "rightValue": "report_request", "operator": { "type": "string", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "ack-report",
+      "name": "Ack Report Request",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [2000, 50],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $env.TEAM_LEAD_APPROVAL_CHANNEL_ID }}",
+        "content": "✅ Rapport en cours de génération — il apparaîtra ici pour votre approbation."
+      }
+    },
+    {
+      "id": "prep-f01-input",
+      "name": "Prepare F-01 Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 50],
+      "parameters": {
+        "jsCode": "// L-02: hard fail if variable not configured (avoids silent swallow)\nif (!$vars.F01_WORKFLOW_ID) {\n  throw new Error('F01_WORKFLOW_ID n8n variable is not configured. Import the F-01 workflow first.');\n}\nreturn [{ json: {\n  trigger: 'on_demand',\n  requested_by: $('Classify Intent').item.json.author_id\n} }];"
+      }
+    },
+    {
+      "id": "call-f01",
+      "name": "Call F-01 Report",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2500, 50],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $vars.F01_WORKFLOW_ID }}",
+          "mode": "id"
+        },
+        "waitForSubWorkflow": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "if-status-question",
+      "name": "Status Question?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2000, 350],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.intent }}", "rightValue": "status_question", "operator": { "type": "string", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "if-named-request",
+      "name": "Named Individual?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2250, 250],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.asksForNamed }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "refuse-named",
+      "name": "Refuse Named Request",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [2500, 150],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $env.TEAM_LEAD_APPROVAL_CHANNEL_ID }}",
+        "content": "Je ne peux pas nommer les membres individuellement dans ce canal.\n\nSignal anonymisé disponible : l'avancement est suivi par zone de fonctionnalité uniquement. Pour un aperçu complet, demandez un rapport (`rapport`)."
+      }
+    },
+    {
+      "id": "fetch-context",
+      "name": "Fetch Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2500, 450],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT COUNT(*)::text FROM pipemind.approval_drafts WHERE status = 'pending') AS pending_drafts,\n  (SELECT value FROM pipemind.system_state WHERE key = 'roster_valid') AS roster_valid;"
+      }
+    },
+    {
+      "id": "build-ollama-tl",
+      "name": "Build Ollama Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2750, 450],
+      "parameters": {
+        "jsCode": "const ctx = $input.first().json;\nconst rawQuestion = $('Classify Intent').item.json.content;\n\n// H-01: SC-11 — validate LLM_BASE_URL is private/local\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst host = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst isPrivate =\n  host === 'localhost' ||\n  /^127\\./.test(host) ||\n  /^10\\./.test(host) ||\n  /^192\\.168\\./.test(host) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(host) ||\n  !host.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL is a public endpoint. Set it to a private/local host.');\n}\n\n// H-03: sanitize TL question — strip LLM injection delimiters\nconst safeQuestion = String(rawQuestion || '')\n  .replace(/^(System:|SYSTEM:|###|\\[INST\\])/gm, '  ')\n  .slice(0, 2000);\n\nconst pendingDrafts = Number(ctx.pending_drafts ?? 0);\nconst rosterValid = ctx.roster_valid === 'true';\n\nconst systemPrompt = [\n  'You are an internal coordination assistant for a software team lead. Answer using only project-level, anonymised work-area signals.',\n  '',\n  'STRICT RULES:',\n  '1. Never name any individual team member.',\n  '2. Never attribute work, blockers, hours, or commits to a specific person.',\n  '3. Use anonymised framing only: \"one developer on the auth area\", \"the payments feature area\".',\n  '4. Low Git activity or low logged hours NEVER means someone is behind or blocked (SC-05).',\n  '5. Be brief and direct. If you have no signal for an area, say so explicitly.',\n  '',\n  'Current system context:',\n  '- Pending approval drafts awaiting your review: ' + pendingDrafts,\n  '- Roster configuration loaded: ' + (rosterValid ? 'yes' : 'NO — check roster.json'),\n  '- Note: detailed standup and time-log signals will be available after the standup ingestion phase.'\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.3,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user',   content: 'Team Lead question:\\n\\n' + safeQuestion }\n  ]\n} }];"
+      }
+    },
+    {
+      "id": "call-ollama-tl",
+      "name": "Call Ollama TL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3000, 450],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}"
+      }
+    },
+    {
+      "id": "audit-tl-response",
+      "name": "Audit TL Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3250, 450],
+      "parameters": {
+        "jsCode": "// M-01: pattern-check Ollama output before posting to Discord\nconst response = $input.first().json;\nconst answer = String(response.choices?.[0]?.message?.content ?? '').trim();\n\nif (!answer) {\n  return [{ json: { clean: false, answer: '', reason: 'Empty Ollama response' } }];\n}\n\nconst rosterRows = $('Fetch Roster').all();\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst answerNorm = normalize(answer);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\nlet violation = null;\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/\\s+/).filter(p => p.length > 0);\n  for (const part of parts) {\n    if (hasWordBoundary(answerNorm, part)) {\n      violation = 'Named individual detected in Ollama TL response';\n      break;\n    }\n  }\n  if (violation) break;\n}\n\nif (!violation) {\n  const ids = rosterRows.map(r => String(r.json.discord_id || ''));\n  const snowflakes = answerNorm.match(/\\b\\d{17,19}\\b/g) || [];\n  for (const match of snowflakes) {\n    if (ids.includes(match)) {\n      violation = 'Discord ID detected in Ollama TL response';\n      break;\n    }\n  }\n}\n\nreturn [{ json: { clean: !violation, answer, reason: violation } }];"
+      }
+    },
+    {
+      "id": "if-response-clean",
+      "name": "Response Clean?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3500, 450],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.clean }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "post-tl-answer",
+      "name": "Post TL Answer",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [3750, 350],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $env.TEAM_LEAD_APPROVAL_CHANNEL_ID }}",
+        "content": "={{ $('Audit TL Response').item.json.answer.slice(0, 2000) }}"
+      }
+    },
+    {
+      "id": "post-audit-fallback",
+      "name": "Post Audit Fallback",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [3750, 550],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $env.TEAM_LEAD_APPROVAL_CHANNEL_ID }}",
+        "content": "Je ne peux pas afficher cette réponse pour le moment. Veuillez reformuler votre question ou demander un rapport complet (`rapport`)."
+      }
+    },
+    {
+      "id": "post-help",
+      "name": "Post Help Message",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [2250, 550],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $env.TEAM_LEAD_APPROVAL_CHANNEL_ID }}",
+        "content": "Je n'ai pas reconnu cette commande.\n\n**Commandes disponibles :**\n• `rapport` — générer un rapport projet à la demande\n• [votre question ?] — résumé anonymisé de l'avancement par zone de fonctionnalité\n\n**Limitations :** je ne peux pas nommer les membres individuellement.\nPour les drafts : réagissez avec ✅ ❌ ✏️ directement sur le message de draft."
+      }
+    }
+  ],
+  "connections": {
+    "Discord Events":      { "main": [[{ "node": "Filter Message",         "type": "main", "index": 0 }]] },
+    "Filter Message":      { "main": [[{ "node": "Skip?",                  "type": "main", "index": 0 }]] },
+    "Skip?":               { "main": [ [], [{ "node": "Fetch Roster",      "type": "main", "index": 0 }] ] },
+    "Fetch Roster":        { "main": [[{ "node": "Verify TL Identity",     "type": "main", "index": 0 }]] },
+    "Verify TL Identity":  { "main": [[{ "node": "TL Verified?",           "type": "main", "index": 0 }]] },
+    "TL Verified?":        { "main": [ [{ "node": "Classify Intent",       "type": "main", "index": 0 }], [] ] },
+    "Classify Intent":     { "main": [[{ "node": "Report Request?",        "type": "main", "index": 0 }]] },
+    "Report Request?":     { "main": [
+      [{ "node": "Ack Report Request",                                      "type": "main", "index": 0 }],
+      [{ "node": "Status Question?",                                        "type": "main", "index": 0 }]
+    ]},
+    "Ack Report Request":  { "main": [[{ "node": "Prepare F-01 Input",     "type": "main", "index": 0 }]] },
+    "Prepare F-01 Input":  { "main": [[{ "node": "Call F-01 Report",       "type": "main", "index": 0 }]] },
+    "Status Question?":    { "main": [
+      [{ "node": "Named Individual?",                                       "type": "main", "index": 0 }],
+      [{ "node": "Post Help Message",                                       "type": "main", "index": 0 }]
+    ]},
+    "Named Individual?":   { "main": [
+      [{ "node": "Refuse Named Request",                                    "type": "main", "index": 0 }],
+      [{ "node": "Fetch Context",                                           "type": "main", "index": 0 }]
+    ]},
+    "Fetch Context":       { "main": [[{ "node": "Build Ollama Query",     "type": "main", "index": 0 }]] },
+    "Build Ollama Query":  { "main": [[{ "node": "Call Ollama TL",         "type": "main", "index": 0 }]] },
+    "Call Ollama TL":      { "main": [[{ "node": "Audit TL Response",      "type": "main", "index": 0 }]] },
+    "Audit TL Response":   { "main": [[{ "node": "Response Clean?",        "type": "main", "index": 0 }]] },
+    "Response Clean?":     { "main": [
+      [{ "node": "Post TL Answer",                                          "type": "main", "index": 0 }],
+      [{ "node": "Post Audit Fallback",                                     "type": "main", "index": 0 }]
+    ]}
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "meta": { "instanceId": "pipemind" },
+  "tags": [{ "name": "tl-interaction" }, { "name": "p0" }]
+}
