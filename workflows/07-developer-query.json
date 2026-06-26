@@ -1,0 +1,251 @@
+{
+  "name": "07 — F-17: Developer Project-Status Query",
+  "nodes": [
+    {
+      "id": "discord-trigger",
+      "name": "Discord Events",
+      "type": "n8n-nodes-base.discordTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": { "events": ["messageCreate"] }
+    },
+    {
+      "id": "filter-dm-message",
+      "name": "Filter DM Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "parameters": {
+        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\nif (event.t !== 'MESSAGE_CREATE' && event.type !== 0) {\n  return [{ json: { skip: true } }];\n}\n// DMs have no guild_id; channel_type 1 = DM\nif (d.guild_id) {\n  return [{ json: { skip: true } }];\n}\nif (d.author?.bot || d.webhook_id) {\n  return [{ json: { skip: true } }];\n}\nconst content = String(d.content || '').trim();\nif (!content) {\n  return [{ json: { skip: true } }];\n}\nreturn [{ json: {\n  skip: false,\n  content,\n  author_id: String(d.author?.id || ''),\n  channel_id: String(d.channel_id || '')\n} }];"
+      }
+    },
+    {
+      "id": "if-skip",
+      "name": "Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [500, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.skip }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "skip-not-dm",
+      "name": "Skip — Not DM",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [750, 100],
+      "parameters": {}
+    },
+    {
+      "id": "fetch-roster",
+      "name": "Fetch Roster",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, 450],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name, discord_id FROM pipemind.roster WHERE active = true AND role != 'client';"
+      }
+    },
+    {
+      "id": "verify-developer",
+      "name": "Verify Developer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 450],
+      "parameters": {
+        "jsCode": "const msg = $('Filter DM Message').item.json;\nconst authorId = String(msg.author_id || '');\nconst rows = $input.all();\nif (!rows.length) {\n  return [{ json: { devVerified: false } }];\n}\nconst member = rows.find(r => String(r.json.discord_id || '').trim() === authorId);\nreturn [{ json: {\n  devVerified: !!member,\n  author_id: authorId,\n  channel_id: msg.channel_id,\n  content: msg.content\n} }];"
+      }
+    },
+    {
+      "id": "if-dev-verified",
+      "name": "Developer Verified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 450],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.devVerified }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "skip-not-developer",
+      "name": "Skip — Not Developer",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1500, 200],
+      "parameters": {}
+    },
+    {
+      "id": "fetch-github",
+      "name": "Fetch GitHub Signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1500, 600],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.github.com/repos/' + $env.GITHUB_OWNER + '/' + $env.GITHUB_REPO + '/pulls?state=all&sort=updated&direction=desc&per_page=30' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization",        "value": "={{ 'Bearer ' + $env.GITHUB_TOKEN }}" },
+            { "name": "Accept",               "value": "application/vnd.github.v3+json" },
+            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "strip-github-fields",
+      "name": "Strip GitHub Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1750, 600],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst prs = Array.isArray(raw) ? raw : [];\nconst stripped = prs.map(pr => ({\n  state: pr.state || 'open',\n  labels: Array.isArray(pr.labels) ? pr.labels.map(l => ({ name: String(l.name || '') })) : []\n}));\nreturn [{ json: stripped }];"
+      }
+    },
+    {
+      "id": "fetch-jira",
+      "name": "Fetch Jira Signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 600],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.JIRA_BASE_URL + '/rest/api/3/search?jql=project%3D' + $env.JIRA_PROJECT_KEY + '%20ORDER%20BY%20updated%20DESC&maxResults=30&fields=status,labels,components,priority,-summary,-description,-assignee,-reporter,-creator' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ 'Basic ' + $env.JIRA_AUTH }}" },
+            { "name": "Accept",        "value": "application/json" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "assemble-context",
+      "name": "Assemble Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 600],
+      "parameters": {
+        "jsCode": "const githubData = $('Strip GitHub Fields').item.json;\nconst jiraData = $input.first().json;\n\nconst features = {};\nlet hasData = false;\n\nconst addFeature = key => {\n  if (!features[key]) features[key] = { open_prs: 0, closed_prs: 0, open_issues: 0, closed_issues: 0 };\n};\n\nconst sanitizeLabel = raw => String(raw || '')\n  .toLowerCase()\n  .replace(/[^a-z0-9 \\-]/g, '')\n  .trim()\n  .slice(0, 50) || 'general';\n\nconst prs = Array.isArray(githubData) ? githubData : [];\nfor (const pr of prs.slice(0, 30)) {\n  if (!pr || typeof pr !== 'object') continue;\n  const labels = (pr.labels || []).map(l => sanitizeLabel(l.name)).filter(l => l && l !== 'general');\n  const area = labels.length > 0 ? labels[0] : 'general';\n  addFeature(area);\n  if (pr.state === 'open') features[area].open_prs++;\n  else features[area].closed_prs++;\n  hasData = true;\n}\n\nconst jiraIssues = Array.isArray(jiraData?.issues) ? jiraData.issues : [];\nfor (const issue of jiraIssues.slice(0, 30)) {\n  if (!issue || typeof issue !== 'object') continue;\n  const fields = issue.fields || {};\n  const labels = Array.isArray(fields.labels) ? fields.labels.map(l => sanitizeLabel(l)).filter(Boolean) : [];\n  const components = Array.isArray(fields.components) ? fields.components.map(c => sanitizeLabel(c.name)).filter(Boolean) : [];\n  const area = labels[0] || components[0] || 'general';\n  addFeature(area);\n  const statusName = String(fields.status?.name || '').toLowerCase();\n  if (statusName === 'done' || statusName === 'closed' || statusName === 'resolved') {\n    features[area].closed_issues++;\n  } else {\n    features[area].open_issues++;\n  }\n  hasData = true;\n}\n\nconst lines = [];\nif (!hasData) {\n  lines.push('No supplementary signal data available from GitHub or Jira at this time.');\n} else {\n  for (const [area, counts] of Object.entries(features)) {\n    const parts = [];\n    if (counts.open_prs > 0)      parts.push(counts.open_prs + ' open PR(s)');\n    if (counts.closed_prs > 0)    parts.push(counts.closed_prs + ' merged/closed PR(s)');\n    if (counts.open_issues > 0)   parts.push(counts.open_issues + ' open ticket(s)');\n    if (counts.closed_issues > 0) parts.push(counts.closed_issues + ' resolved ticket(s)');\n    if (parts.length > 0) lines.push('- ' + area + ': ' + parts.join(', '));\n  }\n}\n\nreturn [{ json: {\n  signal_summary: lines.join('\\n'),\n  has_signals: hasData,\n  dev_question: $('Verify Developer').item.json.content,\n  channel_id: $('Verify Developer').item.json.channel_id\n} }];"
+      }
+    },
+    {
+      "id": "build-ollama-request",
+      "name": "Build Ollama Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2500, 600],
+      "parameters": {
+        "jsCode": "const ctx = $input.first().json;\n\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst host = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst isPrivate =\n  host === 'localhost' ||\n  /^127\\./.test(host) ||\n  /^10\\./.test(host) ||\n  /^192\\.168\\./.test(host) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(host) ||\n  /^100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\./.test(host) ||\n  /^169\\.254\\./.test(host) ||\n  /^\\[?::1\\]?$/.test(host) ||\n  /^\\[?fe80:/i.test(host) ||\n  /\\.(internal|local|corp|lan)$/i.test(host) ||\n  !host.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL must be a private/local endpoint.');\n}\n\n// Strip control chars and template delimiters from the question\nconst safeQuestion = String(ctx.dev_question || '')\n  .replace(/[\\x00-\\x1F\\x7F<>|]/g, ' ')\n  .trim()\n  .slice(0, 1000);\n\nconst signalText = ctx.has_signals\n  ? ctx.signal_summary\n  : 'No activity data is currently available from GitHub or Jira.';\n\nconst systemPrompt = [\n  'You are a project coordinator answering a developer question about the project.',\n  '',\n  'ABSOLUTE RULES:',\n  '1. Provide project-level and feature-level context only.',\n  '2. Do not name, identify, or attribute work to any specific individual teammate.',\n  '3. If asked who is assigned to something, provide the feature-area context without naming the person.',\n  '4. Base your answer ONLY on the project context provided. Do not invent or assume status.',\n  '5. Keep it concise and factual.',\n  '6. Return ONLY the reply text. No preamble, no meta-commentary.'\n].join('\\n');\n\nconst userMsg = [\n  'Developer question: ' + safeQuestion,\n  '',\n  'Current project context:',\n  signalText\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.3,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user',   content: userMsg }\n  ],\n  _channel_id: ctx.channel_id\n} }];"
+      }
+    },
+    {
+      "id": "call-ollama",
+      "name": "Call Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2750, 600],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: $json.model, temperature: $json.temperature, messages: $json.messages }) }}"
+      }
+    },
+    {
+      "id": "audit-response",
+      "name": "Audit Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3000, 600],
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst content = String(response.choices?.[0]?.message?.content ?? '').trim();\n\nif (!content) {\n  return [{ json: { clean: false, reply: '', channel_id: $('Assemble Context').item.json.channel_id } }];\n}\n\nconst rosterRows = $('Fetch Roster').all();\n\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst contentNorm = normalize(content);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\nlet violation = false;\n\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/\\s+/).filter(p => p.length > 0);\n  for (const part of parts) {\n    if (hasWordBoundary(contentNorm, part)) { violation = true; break; }\n  }\n  if (violation) break;\n}\n\nif (!violation) {\n  const ids = rosterRows.map(r => String(r.json.discord_id || '').trim());\n  const digitsOnly = content.replace(/\\D/g, '');\n  const snowflakes = contentNorm.match(/\\b\\d{17,19}\\b/g) || [];\n  for (const id of ids) {\n    if (!id) continue;\n    if (snowflakes.includes(id) || (id.length >= 17 && digitsOnly.includes(id))) {\n      violation = true; break;\n    }\n  }\n}\n\nreturn [{ json: {\n  clean: !violation,\n  reply: content,\n  channel_id: $('Assemble Context').item.json.channel_id\n} }];"
+      }
+    },
+    {
+      "id": "if-response-clean",
+      "name": "Response Clean?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3250, 600],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.clean }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "post-dm-reply",
+      "name": "Post DM Reply",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [3500, 450],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $json.channel_id }}",
+        "content": "={{ $json.reply }}"
+      }
+    },
+    {
+      "id": "post-audit-fallback",
+      "name": "Post Audit Fallback",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [3500, 750],
+      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "parameters": {
+        "operation": "sendMessage",
+        "channelId": "={{ $json.channel_id }}",
+        "content": "I can provide project-level context only — I'm not able to share individual attribution or name specific teammates. Feel free to ask about a feature area's overall progress instead."
+      }
+    }
+  ],
+  "connections": {
+    "Discord Events":       { "main": [[{ "node": "Filter DM Message",      "type": "main", "index": 0 }]] },
+    "Filter DM Message":    { "main": [[{ "node": "Skip?",                  "type": "main", "index": 0 }]] },
+    "Skip?":                { "main": [
+      [{ "node": "Skip — Not DM",          "type": "main", "index": 0 }],
+      [{ "node": "Fetch Roster",           "type": "main", "index": 0 }]
+    ]},
+    "Fetch Roster":         { "main": [[{ "node": "Verify Developer",       "type": "main", "index": 0 }]] },
+    "Verify Developer":     { "main": [[{ "node": "Developer Verified?",    "type": "main", "index": 0 }]] },
+    "Developer Verified?":  { "main": [
+      [{ "node": "Skip — Not Developer",   "type": "main", "index": 0 }],
+      [{ "node": "Fetch GitHub Signals",   "type": "main", "index": 0 }]
+    ]},
+    "Fetch GitHub Signals": { "main": [[{ "node": "Strip GitHub Fields",    "type": "main", "index": 0 }]] },
+    "Strip GitHub Fields":  { "main": [[{ "node": "Fetch Jira Signals",     "type": "main", "index": 0 }]] },
+    "Fetch Jira Signals":   { "main": [[{ "node": "Assemble Context",       "type": "main", "index": 0 }]] },
+    "Assemble Context":     { "main": [[{ "node": "Build Ollama Request",   "type": "main", "index": 0 }]] },
+    "Build Ollama Request": { "main": [[{ "node": "Call Ollama",            "type": "main", "index": 0 }]] },
+    "Call Ollama":          { "main": [[{ "node": "Audit Response",         "type": "main", "index": 0 }]] },
+    "Audit Response":       { "main": [[{ "node": "Response Clean?",        "type": "main", "index": 0 }]] },
+    "Response Clean?":      { "main": [
+      [{ "node": "Post DM Reply",          "type": "main", "index": 0 }],
+      [{ "node": "Post Audit Fallback",    "type": "main", "index": 0 }]
+    ]}
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "meta": { "instanceId": "pipemind" },
+  "tags": [{ "name": "developer-query" }, { "name": "p0" }, { "name": "f-17" }]
+}
