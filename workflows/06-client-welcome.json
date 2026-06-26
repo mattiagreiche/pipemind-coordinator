@@ -17,7 +17,7 @@
       "typeVersion": 2,
       "position": [250, 300],
       "parameters": {
-        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Require GUILD_MEMBER_ADD — skip anything else that slips through\nif (event.t && event.t !== 'GUILD_MEMBER_ADD') {\n  return [{ json: { skip: true } }];\n}\n\n// Discord GUILD_MEMBER_ADD payload: d.user.id\n// n8n may normalise differently so fall back to d.id\nconst userId = String(d.user?.id || d.id || '').trim();\nif (!userId || !/^\\d{17,19}$/.test(userId)) {\n  return [{ json: { skip: true } }];\n}\n\nreturn [{ json: { skip: false, user_id: userId } }];"
+        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\nif (event.t && event.t !== 'GUILD_MEMBER_ADD') {\n  return [{ json: { skip: true } }];\n}\n\n// Discord GUILD_MEMBER_ADD payload: d.user.id; n8n may normalise to d.id\nconst userId = String(d.user?.id || d.id || '').trim();\nif (!userId || !/^\\d{17,19}$/.test(userId)) {\n  return [{ json: { skip: true } }];\n}\n\nreturn [{ json: { skip: false, user_id: userId } }];"
       }
     },
     {
@@ -59,7 +59,7 @@
       "typeVersion": 2,
       "position": [1000, 450],
       "parameters": {
-        "jsCode": "const userId = String($('Filter Join Event').item.json.user_id || '');\nconst rows = $input.all();\nif (!rows.length) {\n  return [{ json: { isClient: false, user_id: userId } }];\n}\nconst clientIds = rows.map(r => String(r.json.discord_id || '')).filter(Boolean);\nreturn [{ json: { isClient: clientIds.includes(userId), user_id: userId } }];"
+        "jsCode": "const userId = String($('Filter Join Event').item.json.user_id || '');\nconst rows = $input.all();\nif (!rows.length) {\n  return [{ json: { isClient: false, user_id: userId } }];\n}\n// H-02: trim roster IDs to handle whitespace in stored values\nconst clientIds = rows.map(r => String(r.json.discord_id || '').trim()).filter(Boolean);\nreturn [{ json: { isClient: clientIds.includes(userId), user_id: userId } }];"
       }
     },
     {
@@ -83,23 +83,23 @@
       "parameters": {}
     },
     {
-      "id": "check-welcomed",
-      "name": "Check Already Welcomed",
+      "id": "claim-welcome-slot",
+      "name": "Claim Welcome Slot",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [1500, 600],
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT client_discord_id FROM pipemind.client_welcomed WHERE client_discord_id = $1;",
+        "query": "INSERT INTO pipemind.client_welcomed (client_discord_id)\nVALUES ($1)\nON CONFLICT (client_discord_id) DO NOTHING\nRETURNING client_discord_id;",
         "additionalFields": {
           "queryParams": "={{ [ $('Verify Client Join').item.json.user_id ] }}"
         }
       }
     },
     {
-      "id": "if-already-welcomed",
-      "name": "Already Welcomed?",
+      "id": "if-slot-claimed",
+      "name": "Slot Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [1750, 600],
@@ -136,7 +136,7 @@
       "typeVersion": 2,
       "position": [2250, 750],
       "parameters": {
-        "jsCode": "const clientDiscordId = $('Verify Client Join').item.json.user_id;\nconst tlRow = $input.first().json;\n\nif (!String($vars.F03_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-15: n8n variable F03_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\nif (!tlRow || !tlRow.discord_id) {\n  throw new Error('F-15: No active team_lead found in roster. Add a member with role=team_lead.');\n}\n\nconst welcomeText = [\n  'Welcome to the project channel!',\n  '',\n  'You can ask questions about the project here at any time — simply type your question and the team will respond.',\n  '',\n  'Feel free to ask about feature progress, timelines, or anything project-related.'\n].join('\\n');\n\nreturn [{ json: {\n  feature_tag: 'F-15',\n  content_type: 'welcome',\n  draft_text: welcomeText,\n  approver_discord_id: String(tlRow.discord_id),\n  approval_channel_id: $env.TEAM_LEAD_APPROVAL_CHANNEL_ID,\n  context_json: {\n    client_channel_id: $env.CLIENT_CHANNEL_ID,\n    client_discord_id: clientDiscordId\n  }\n} }];"
+        "jsCode": "const clientDiscordId = $('Verify Client Join').item.json.user_id;\nconst tlRow = $input.first().json;\n\nif (!String($vars.F03_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-15: n8n variable F03_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\nif (!tlRow || !tlRow.discord_id) {\n  throw new Error('F-15: No active team_lead found in roster. Add a member with role=team_lead.');\n}\n// H-01: re-validate snowflake format as defense-in-depth\nif (!/^\\d{17,19}$/.test(String(clientDiscordId || ''))) {\n  throw new Error('F-15: client_discord_id is not a valid Discord snowflake.');\n}\n// M-03: fail clearly if delivery channel env vars are missing\nif (!String($env.TEAM_LEAD_APPROVAL_CHANNEL_ID || '').trim()) {\n  throw new Error('F-15: TEAM_LEAD_APPROVAL_CHANNEL_ID env var is not set.');\n}\nif (!String($env.CLIENT_CHANNEL_ID || '').trim()) {\n  throw new Error('F-15: CLIENT_CHANNEL_ID env var is not set.');\n}\n\nconst welcomeText = [\n  'Welcome to the project channel!',\n  '',\n  'You can ask questions about the project here at any time — simply type your question and the team will respond.',\n  '',\n  'Feel free to ask about feature progress, timelines, or anything project-related.'\n].join('\\n');\n\nreturn [{ json: {\n  feature_tag: 'F-15',\n  content_type: 'welcome',\n  draft_text: welcomeText,\n  approver_discord_id: String(tlRow.discord_id),\n  approval_channel_id: $env.TEAM_LEAD_APPROVAL_CHANNEL_ID,\n  context_json: {\n    client_channel_id: $env.CLIENT_CHANNEL_ID,\n    client_discord_id: clientDiscordId\n  }\n} }];"
       }
     },
     {
@@ -185,12 +185,12 @@
     "Verify Client Join":      { "main": [[{ "node": "Client Join?",             "type": "main", "index": 0 }]] },
     "Client Join?":            { "main": [
       [{ "node": "Skip — Not Client",        "type": "main", "index": 0 }],
-      [{ "node": "Check Already Welcomed",   "type": "main", "index": 0 }]
+      [{ "node": "Claim Welcome Slot",       "type": "main", "index": 0 }]
     ]},
-    "Check Already Welcomed":  { "main": [[{ "node": "Already Welcomed?",        "type": "main", "index": 0 }]] },
-    "Already Welcomed?":       { "main": [
-      [{ "node": "Skip — Already Welcomed",  "type": "main", "index": 0 }],
-      [{ "node": "Fetch Team Lead",          "type": "main", "index": 0 }]
+    "Claim Welcome Slot":      { "main": [[{ "node": "Slot Claimed?",            "type": "main", "index": 0 }]] },
+    "Slot Claimed?":           { "main": [
+      [{ "node": "Fetch Team Lead",          "type": "main", "index": 0 }],
+      [{ "node": "Skip — Already Welcomed",  "type": "main", "index": 0 }]
     ]},
     "Fetch Team Lead":         { "main": [[{ "node": "Prepare F-03 Input",       "type": "main", "index": 0 }]] },
     "Prepare F-03 Input":      { "main": [[{ "node": "Call F-03 Approval Gate",  "type": "main", "index": 0 }]] },
