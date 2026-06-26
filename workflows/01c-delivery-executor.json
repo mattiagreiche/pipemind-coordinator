@@ -196,15 +196,25 @@
       }
     },
     {
+      "id": "validate-qa-channel",
+      "name": "Validate QA Channel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 250],
+      "parameters": {
+        "jsCode": "const draft = $('Fetch Approved Draft').item.json;\nconst stored = String(draft.context_json?.client_channel_id || '');\nconst expected = String($env.CLIENT_CHANNEL_ID || '');\nif (!stored || !expected || stored !== expected) {\n  throw new Error('Delivery aborted: context_json.client_channel_id does not match CLIENT_CHANNEL_ID. Possible channel manipulation.');\n}\nreturn [{ json: draft }];"
+      }
+    },
+    {
       "id": "post-qa",
       "name": "Post QA Reply",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1500, 250],
+      "position": [1750, 250],
       "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
       "parameters": {
         "operation": "sendMessage",
-        "channelId": "={{ $('Fetch Approved Draft').item.json.context_json?.client_channel_id }}",
+        "channelId": "={{ $env.CLIENT_CHANNEL_ID }}",
         "content": "={{ $('Fetch Approved Draft').item.json.final_text }}"
       }
     },
@@ -329,9 +339,10 @@
     "Send Gmail":             { "main": [[{ "node": "Log Gmail Delivered",      "type": "main", "index": 0 }]] },
     "Dedup Discord QA":       { "main": [[{ "node": "QA Not Yet Sent?",         "type": "main", "index": 0 }]] },
     "QA Not Yet Sent?":       { "main": [
-      [{ "node": "Post QA Reply",           "type": "main", "index": 0 }],
+      [{ "node": "Validate QA Channel",     "type": "main", "index": 0 }],
       []
     ]},
+    "Validate QA Channel":    { "main": [[{ "node": "Post QA Reply",            "type": "main", "index": 0 }]] },
     "Post QA Reply":          { "main": [[{ "node": "Log QA Delivered",         "type": "main", "index": 0 }]] },
     "Dedup Welcome":          { "main": [[{ "node": "Welcome Not Yet Sent?",    "type": "main", "index": 0 }]] },
     "Welcome Not Yet Sent?":  { "main": [
