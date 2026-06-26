@@ -19,7 +19,7 @@
       "typeVersion": 2,
       "position": [250, 300],
       "parameters": {
-        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '✅': 'approve', '✏️': 'edit', '❌': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text reply (edit flow)\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  if (!referenced_id) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'message',\n    action: 'edit_reply',\n    message_id: referenced_id,\n    actor_discord_id: d.author?.id,\n    channel_id: d.channel_id,\n    content: d.content\n  }}];\n}\n\nreturn [{ json: { skip: true } }];"
+        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '✅': 'approve', '✏️': 'edit', '❌': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text reply (edit flow)\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  if (!referenced_id) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'message',\n    action: 'edit_reply',\n    message_id: referenced_id,\n    reply_id: d.id,\n    actor_discord_id: d.author?.id,\n    channel_id: d.channel_id,\n    content: d.content\n  }}];\n}\n\nreturn [{ json: { skip: true } }];"
       }
     },
     {
@@ -117,7 +117,7 @@
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE pipemind.approval_drafts\nSET status = 'approved', settled_at = now()\nWHERE draft_id = $1::uuid AND status = 'pending'\nRETURNING draft_id;",
+        "query": "UPDATE pipemind.approval_drafts\nSET status = 'approved', settled_at = now()\nWHERE draft_id = $1::uuid AND status = 'pending' AND expires_at > now()\nRETURNING draft_id;",
         "additionalFields": {
           "queryParams": "={{ [ $('Lookup Draft').item.json.draft_id ] }}"
         }
@@ -158,7 +158,7 @@
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE pipemind.approval_drafts\nSET status = 'rejected', settled_at = now()\nWHERE draft_id = $1::uuid;",
+        "query": "UPDATE pipemind.approval_drafts\nSET status = 'rejected', settled_at = now()\nWHERE draft_id = $1::uuid AND status = 'pending';",
         "additionalFields": {
           "queryParams": "={{ [ $('Lookup Draft').item.json.draft_id ] }}"
         }
@@ -197,7 +197,7 @@
       "typeVersion": 2,
       "position": [1750, 650],
       "parameters": {
-        "jsCode": "const evt = $('Classify Event').item.json;\nconst draft = $('Lookup Draft').item.json;\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content — strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, draft_id: draft.draft_id } }];"
+        "jsCode": "const evt = $('Classify Event').item.json;\nconst draft = $('Lookup Draft').item.json;\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content — strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, reply_message_id: evt.reply_id, draft_id: draft.draft_id } }];"
       }
     },
     {
@@ -223,7 +223,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET edited_text = $1,\n    discord_message_id = $2\nWHERE draft_id = $3::uuid;",
         "additionalFields": {
-          "queryParams": "={{ [\n  $json.safe_content,\n  $json.message_id,\n  $json.draft_id\n] }}"
+          "queryParams": "={{ [\n  $json.safe_content,\n  $json.reply_message_id,\n  $json.draft_id\n] }}"
         }
       }
     },

@@ -259,7 +259,7 @@
       "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
       "parameters": {
         "operation": "sendMessage",
-        "channelId": "={{ $('Fetch Approved Draft').item.json.context_json?.qa_channel_id }}",
+        "channelId": "={{ $('Fetch Approved Draft').item.json.context_json?.client_channel_id }}",
         "content": "={{ $('Fetch Approved Draft').item.json.final_text }}"
       }
     },
