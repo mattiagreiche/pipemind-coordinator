@@ -32,11 +32,11 @@
       "name": "Check Pending Report",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [250, 150],
+      "position": [250, 300],
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT COUNT(*)::int AS pending_count\nFROM pipemind.approval_drafts\nWHERE feature_tag = 'F-01'\n  AND content_type = 'report'\n  AND status IN ('pending', 'approved')\n  AND created_at >= date_trunc('week', now())\n  AND expires_at > now();"
+        "query": "SELECT COUNT(*)::int AS pending_count\nFROM pipemind.approval_drafts\nWHERE feature_tag = 'F-01'\n  AND content_type = 'report'\n  AND status = 'pending'\n  AND created_at >= date_trunc('week', now())\n  AND expires_at > now();"
       }
     },
     {
@@ -44,7 +44,7 @@
       "name": "Already Drafted This Week?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [500, 150],
+      "position": [500, 300],
       "parameters": {
         "conditions": {
           "conditions": [{
@@ -60,7 +60,7 @@
       "name": "Skip — Already Drafted",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [750, 50],
+      "position": [750, 150],
       "parameters": {}
     },
     {
@@ -68,19 +68,29 @@
       "name": "Fetch GitHub Signals",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [750, 300],
+      "position": [750, 450],
       "parameters": {
         "method": "GET",
         "url": "={{ 'https://api.github.com/repos/' + $env.GITHUB_OWNER + '/' + $env.GITHUB_REPO + '/pulls?state=all&sort=updated&direction=desc&per_page=30' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization",       "value": "={{ 'Bearer ' + $env.GITHUB_TOKEN }}" },
-            { "name": "Accept",              "value": "application/vnd.github.v3+json" },
-            { "name": "X-GitHub-Api-Version","value": "2022-11-28" }
+            { "name": "Authorization",        "value": "={{ 'Bearer ' + $env.GITHUB_TOKEN }}" },
+            { "name": "Accept",               "value": "application/vnd.github.v3+json" },
+            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
           ]
         },
         "options": {}
+      }
+    },
+    {
+      "id": "strip-github-fields",
+      "name": "Strip GitHub Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 450],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst prs = Array.isArray(raw) ? raw : [];\nconst stripped = prs.map(pr => ({\n  state: pr.state || 'open',\n  labels: Array.isArray(pr.labels) ? pr.labels.map(l => ({ name: String(l.name || '') })) : []\n}));\nreturn [{ json: stripped }];"
       }
     },
     {
@@ -88,10 +98,10 @@
       "name": "Fetch Jira Signals",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1000, 300],
+      "position": [1250, 450],
       "parameters": {
         "method": "GET",
-        "url": "={{ $env.JIRA_BASE_URL + '/rest/api/3/search?jql=project%3D' + $env.JIRA_PROJECT_KEY + '%20ORDER%20BY%20updated%20DESC&maxResults=30&fields=status,labels,components,priority' }}",
+        "url": "={{ $env.JIRA_BASE_URL + '/rest/api/3/search?jql=project%3D' + $env.JIRA_PROJECT_KEY + '%20ORDER%20BY%20updated%20DESC&maxResults=30&fields=status,labels,components,priority,-summary,-description,-assignee,-reporter,-creator' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -107,9 +117,9 @@
       "name": "Assemble Signals",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1250, 300],
+      "position": [1500, 450],
       "parameters": {
-        "jsCode": "// SC-17: feature-level signals only — strip all individual attribution\nconst githubData = $('Fetch GitHub Signals').item.json;\nconst jiraData = $input.first().json;\n\nconst features = {};\nlet hasData = false;\n\nconst addFeature = key => {\n  if (!features[key]) features[key] = { open_prs: 0, closed_prs: 0, open_issues: 0, closed_issues: 0 };\n};\n\n// M-01: sanitize label/component names before injecting into Ollama prompt\n// Strips LLM injection delimiters and enforces ASCII printable + length cap\nconst sanitizeLabel = raw => String(raw || '')\n  .replace(/^(System:|SYSTEM:|###|\\[INST\\]|<s>|\\[\\/?SYS\\])/gmi, '')\n  .replace(/[^\\x20-\\x7E]/g, '')\n  .trim()\n  .toLowerCase()\n  .slice(0, 50) || 'general';\n\n// Process GitHub PRs — group by first label; strip author/assignee\nconst prs = Array.isArray(githubData) ? githubData : [];\nfor (const pr of prs.slice(0, 30)) {\n  if (!pr || typeof pr !== 'object') continue;\n  const labels = (pr.labels || []).map(l => sanitizeLabel(l.name)).filter(l => l && l !== 'general');\n  const area = labels.length > 0 ? labels[0] : 'general';\n  addFeature(area);\n  if (pr.state === 'open') features[area].open_prs++;\n  else features[area].closed_prs++;\n  hasData = true;\n}\n\n// Process Jira issues — group by first label or component; strip assignee/reporter\nconst jiraIssues = Array.isArray(jiraData?.issues) ? jiraData.issues : [];\nfor (const issue of jiraIssues.slice(0, 30)) {\n  if (!issue || typeof issue !== 'object') continue;\n  const fields = issue.fields || {};\n  const labels = Array.isArray(fields.labels) ? fields.labels.map(l => sanitizeLabel(l)).filter(Boolean) : [];\n  const components = Array.isArray(fields.components) ? fields.components.map(c => sanitizeLabel(c.name)).filter(Boolean) : [];\n  const area = labels[0] || components[0] || 'general';\n  addFeature(area);\n  const statusName = String(fields.status?.name || '').toLowerCase();\n  if (statusName === 'done' || statusName === 'closed' || statusName === 'resolved') {\n    features[area].closed_issues++;\n  } else {\n    features[area].open_issues++;\n  }\n  hasData = true;\n}\n\n// Build clean project-level summary\nconst lines = [];\nif (!hasData) {\n  lines.push('No supplementary signal data available from GitHub or Jira this period.');\n} else {\n  for (const [area, counts] of Object.entries(features)) {\n    const parts = [];\n    if (counts.open_prs > 0)      parts.push(counts.open_prs + ' open PR(s)');\n    if (counts.closed_prs > 0)    parts.push(counts.closed_prs + ' merged/closed PR(s)');\n    if (counts.open_issues > 0)   parts.push(counts.open_issues + ' open ticket(s)');\n    if (counts.closed_issues > 0) parts.push(counts.closed_issues + ' resolved ticket(s)');\n    if (parts.length > 0) lines.push('- ' + area + ': ' + parts.join(', '));\n  }\n}\n\nreturn [{ json: { signal_summary: lines.join('\\n'), has_signals: hasData } }];"
+        "jsCode": "const githubData = $('Strip GitHub Fields').item.json;\nconst jiraData = $input.first().json;\n\nconst features = {};\nlet hasData = false;\n\nconst addFeature = key => {\n  if (!features[key]) features[key] = { open_prs: 0, closed_prs: 0, open_issues: 0, closed_issues: 0 };\n};\n\nconst sanitizeLabel = raw => String(raw || '')\n  .toLowerCase()\n  .replace(/[^a-z0-9 \\-]/g, '')\n  .trim()\n  .slice(0, 50) || 'general';\n\nconst prs = Array.isArray(githubData) ? githubData : [];\nfor (const pr of prs.slice(0, 30)) {\n  if (!pr || typeof pr !== 'object') continue;\n  const labels = (pr.labels || []).map(l => sanitizeLabel(l.name)).filter(l => l && l !== 'general');\n  const area = labels.length > 0 ? labels[0] : 'general';\n  addFeature(area);\n  if (pr.state === 'open') features[area].open_prs++;\n  else features[area].closed_prs++;\n  hasData = true;\n}\n\nconst jiraIssues = Array.isArray(jiraData?.issues) ? jiraData.issues : [];\nfor (const issue of jiraIssues.slice(0, 30)) {\n  if (!issue || typeof issue !== 'object') continue;\n  const fields = issue.fields || {};\n  const labels = Array.isArray(fields.labels) ? fields.labels.map(l => sanitizeLabel(l)).filter(Boolean) : [];\n  const components = Array.isArray(fields.components) ? fields.components.map(c => sanitizeLabel(c.name)).filter(Boolean) : [];\n  const area = labels[0] || components[0] || 'general';\n  addFeature(area);\n  const statusName = String(fields.status?.name || '').toLowerCase();\n  if (statusName === 'done' || statusName === 'closed' || statusName === 'resolved') {\n    features[area].closed_issues++;\n  } else {\n    features[area].open_issues++;\n  }\n  hasData = true;\n}\n\nconst lines = [];\nif (!hasData) {\n  lines.push('No supplementary signal data available from GitHub or Jira this period.');\n} else {\n  for (const [area, counts] of Object.entries(features)) {\n    const parts = [];\n    if (counts.open_prs > 0)      parts.push(counts.open_prs + ' open PR(s)');\n    if (counts.closed_prs > 0)    parts.push(counts.closed_prs + ' merged/closed PR(s)');\n    if (counts.open_issues > 0)   parts.push(counts.open_issues + ' open ticket(s)');\n    if (counts.closed_issues > 0) parts.push(counts.closed_issues + ' resolved ticket(s)');\n    if (parts.length > 0) lines.push('- ' + area + ': ' + parts.join(', '));\n  }\n}\n\nreturn [{ json: { signal_summary: lines.join('\\n'), has_signals: hasData } }];"
       }
     },
     {
@@ -117,11 +127,11 @@
       "name": "Fetch Team Lead",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1500, 300],
+      "position": [1750, 450],
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT discord_id, name FROM pipemind.roster WHERE active = true AND role = 'team_lead' LIMIT 1;"
+        "query": "SELECT discord_id, name FROM pipemind.roster WHERE active = true AND role = 'team_lead' ORDER BY name ASC LIMIT 1;"
       }
     },
     {
@@ -129,9 +139,9 @@
       "name": "Build Ollama Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1750, 300],
+      "position": [2000, 450],
       "parameters": {
-        "jsCode": "const signals = $('Assemble Signals').item.json;\nconst tlRow = $('Fetch Team Lead').item.json;\n\nif (!tlRow || !tlRow.discord_id) {\n  throw new Error('F-01: No active team_lead found in roster. Add a member with role=team_lead.');\n}\n\n// SC-11: LLM endpoint must be private/local\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst host = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst isPrivate =\n  host === 'localhost' ||\n  /^127\\./.test(host) ||\n  /^10\\./.test(host) ||\n  /^192\\.168\\./.test(host) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(host) ||\n  !host.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL must be a private/local endpoint. Do not send client data to a public LLM.');\n}\n\nconst systemPrompt = [\n  'You are a project coordinator drafting a weekly progress report for the client.',\n  '',\n  'ABSOLUTE RULES:',\n  '1. Write ONLY at the project and feature level. No individual names, Discord handles, or IDs of any kind.',\n  '2. Do not attribute work, commits, hours, tasks, or opinions to any specific person.',\n  '3. Base the report ONLY on the signal data provided. Do not invent or assume progress.',\n  '4. If signals indicate little or no new activity, state honestly that there is little new to report.',\n  '5. Keep it concise and professional: brief introduction, feature-area highlights, any project-level blockers or notes, closing sentence.',\n  '6. Return ONLY the report text. No preamble, no meta-commentary, no quotation marks.'\n].join('\\n');\n\nconst signalText = signals.has_signals\n  ? signals.signal_summary\n  : 'No new activity was detected in GitHub or Jira since the last report period.';\n\nconst userMsg = [\n  'Draft a weekly project progress report for the client based on the following feature-level activity signals:',\n  '',\n  signalText\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.3,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user',   content: userMsg }\n  ]\n} }];"
+        "jsCode": "const signals = $('Assemble Signals').item.json;\nconst tlRow = $('Fetch Team Lead').item.json;\n\nif (!tlRow || !tlRow.discord_id) {\n  throw new Error('F-01: No active team_lead found in roster. Add a member with role=team_lead.');\n}\n\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst host = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst isPrivate =\n  host === 'localhost' ||\n  /^127\\./.test(host) ||\n  /^10\\./.test(host) ||\n  /^192\\.168\\./.test(host) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(host) ||\n  /^\\[?::1\\]?$/.test(host) ||\n  /^\\[?fe80:/i.test(host) ||\n  !host.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL must be a private/local endpoint. Do not send client data to a public LLM.');\n}\n\nconst systemPrompt = [\n  'You are a project coordinator drafting a weekly progress report for the client.',\n  '',\n  'ABSOLUTE RULES:',\n  '1. Write ONLY at the project and feature level. No individual names, Discord handles, or IDs of any kind.',\n  '2. Do not attribute work, commits, hours, tasks, or opinions to any specific person.',\n  '3. Base the report ONLY on the signal data provided. Do not invent or assume progress.',\n  '4. If signals indicate little or no new activity, state honestly that there is little new to report.',\n  '5. Keep it concise and professional: brief introduction, feature-area highlights, any project-level blockers or notes, closing sentence.',\n  '6. Return ONLY the report text. No preamble, no meta-commentary, no quotation marks.'\n].join('\\n');\n\nconst signalText = signals.has_signals\n  ? signals.signal_summary\n  : 'No new activity was detected in GitHub or Jira since the last report period.';\n\nconst userMsg = [\n  'Draft a weekly project progress report for the client based on the following feature-level activity signals:',\n  '',\n  signalText\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.3,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user',   content: userMsg }\n  ]\n} }];"
       }
     },
     {
@@ -139,7 +149,7 @@
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2000, 300],
+      "position": [2250, 450],
       "parameters": {
         "method": "POST",
         "url": "={{ $env.LLM_BASE_URL }}/chat/completions",
@@ -158,7 +168,7 @@
       "name": "Extract Draft",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2250, 300],
+      "position": [2500, 450],
       "parameters": {
         "jsCode": "const response = $input.first().json;\nconst content = String(response.choices?.[0]?.message?.content ?? '').trim();\nif (!content) {\n  throw new Error('F-01: Ollama returned an empty report draft. Check LLM_MODEL and LLM_BASE_URL.');\n}\nreturn [{ json: { draft_text: content } }];"
       }
@@ -168,9 +178,9 @@
       "name": "Prepare F-03 Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2500, 300],
+      "position": [2750, 450],
       "parameters": {
-        "jsCode": "const draftText = $('Extract Draft').item.json.draft_text;\nconst tlRow = $('Fetch Team Lead').item.json;\n\nif (!$vars.F03_WORKFLOW_ID) {\n  throw new Error('F-01: n8n variable F03_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\n\nreturn [{ json: {\n  feature_tag: 'F-01',\n  content_type: 'report',\n  draft_text: draftText,\n  approver_discord_id: String(tlRow.discord_id),\n  approval_channel_id: $env.TEAM_LEAD_APPROVAL_CHANNEL_ID,\n  context_json: {}\n} }];"
+        "jsCode": "const draftText = $('Extract Draft').item.json.draft_text;\nconst tlRow = $('Fetch Team Lead').item.json;\n\nif (!String($vars.F03_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-01: n8n variable F03_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\n\nreturn [{ json: {\n  feature_tag: 'F-01',\n  content_type: 'report',\n  draft_text: draftText,\n  approver_discord_id: String(tlRow.discord_id),\n  approval_channel_id: $env.TEAM_LEAD_APPROVAL_CHANNEL_ID,\n  context_json: {}\n} }];"
       }
     },
     {
@@ -178,7 +188,7 @@
       "name": "Call F-03 Approval Gate",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [2750, 300],
+      "position": [3000, 450],
       "parameters": {
         "source": "database",
         "workflowId": {
@@ -195,7 +205,7 @@
       "name": "Return Draft Info",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [3000, 300],
+      "position": [3250, 450],
       "parameters": {
         "mode": "manual",
         "fields": {
@@ -210,13 +220,14 @@
   ],
   "connections": {
     "Schedule Trigger":           { "main": [[{ "node": "Check Pending Report",        "type": "main", "index": 0 }]] },
-    "On-Demand Trigger":          { "main": [[{ "node": "Fetch GitHub Signals",         "type": "main", "index": 0 }]] },
+    "On-Demand Trigger":          { "main": [[{ "node": "Check Pending Report",         "type": "main", "index": 0 }]] },
     "Check Pending Report":       { "main": [[{ "node": "Already Drafted This Week?",  "type": "main", "index": 0 }]] },
     "Already Drafted This Week?": { "main": [
       [{ "node": "Skip — Already Drafted", "type": "main", "index": 0 }],
       [{ "node": "Fetch GitHub Signals",   "type": "main", "index": 0 }]
     ]},
-    "Fetch GitHub Signals":       { "main": [[{ "node": "Fetch Jira Signals",          "type": "main", "index": 0 }]] },
+    "Fetch GitHub Signals":       { "main": [[{ "node": "Strip GitHub Fields",         "type": "main", "index": 0 }]] },
+    "Strip GitHub Fields":        { "main": [[{ "node": "Fetch Jira Signals",          "type": "main", "index": 0 }]] },
     "Fetch Jira Signals":         { "main": [[{ "node": "Assemble Signals",            "type": "main", "index": 0 }]] },
     "Assemble Signals":           { "main": [[{ "node": "Fetch Team Lead",             "type": "main", "index": 0 }]] },
     "Fetch Team Lead":            { "main": [[{ "node": "Build Ollama Request",        "type": "main", "index": 0 }]] },
