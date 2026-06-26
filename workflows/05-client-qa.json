@@ -6,16 +6,31 @@
       "name": "Discord Events",
       "type": "n8n-nodes-base.discordTrigger",
       "typeVersion": 1,
-      "position": [0, 300],
-      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
-      "parameters": { "events": ["messageCreate"] }
+      "position": [
+        0,
+        300
+      ],
+      "credentials": {
+        "discordBotApi": {
+          "id": "pipemindDiscord",
+          "name": "Pipemind Discord Bot"
+        }
+      },
+      "parameters": {
+        "events": [
+          "messageCreate"
+        ]
+      }
     },
     {
       "id": "filter-message",
       "name": "Filter Message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "parameters": {
         "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\nif (event.t !== 'MESSAGE_CREATE' && event.type !== 0) {\n  return [{ json: { skip: true } }];\n}\nif (String(d.channel_id) !== String($env.CLIENT_CHANNEL_ID)) {\n  return [{ json: { skip: true } }];\n}\nif (d.author?.bot || d.webhook_id) {\n  return [{ json: { skip: true } }];\n}\nconst content = String(d.content || '').trim();\nif (!content) {\n  return [{ json: { skip: true } }];\n}\nreturn [{ json: {\n  skip: false,\n  content,\n  author_id: d.author?.id,\n  channel_id: d.channel_id,\n  message_id: d.id\n} }];"
       }
@@ -25,10 +40,22 @@
       "name": "Skip?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [500, 300],
+      "position": [
+        500,
+        300
+      ],
       "parameters": {
         "conditions": {
-          "conditions": [{ "leftValue": "={{ $json.skip }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+          "conditions": [
+            {
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
         }
       }
     },
@@ -37,7 +64,10 @@
       "name": "Skip — Invalid Message",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [750, 100],
+      "position": [
+        750,
+        100
+      ],
       "parameters": {}
     },
     {
@@ -45,8 +75,16 @@
       "name": "Fetch Client Identity",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [750, 450],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        750,
+        450
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT discord_id FROM pipemind.roster WHERE active = true AND role = 'client';"
@@ -57,7 +95,10 @@
       "name": "Verify Client",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1000, 450],
+      "position": [
+        1000,
+        450
+      ],
       "parameters": {
         "jsCode": "const authorId = String($('Filter Message').item.json.author_id || '');\nconst rows = $input.all();\nif (!rows.length) {\n  return [{ json: { clientVerified: false } }];\n}\nconst clientIds = rows.map(r => String(r.json.discord_id || '')).filter(Boolean);\nreturn [{ json: { clientVerified: clientIds.includes(authorId) } }];"
       }
@@ -67,10 +108,22 @@
       "name": "Client Verified?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1250, 450],
+      "position": [
+        1250,
+        450
+      ],
       "parameters": {
         "conditions": {
-          "conditions": [{ "leftValue": "={{ $json.clientVerified }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+          "conditions": [
+            {
+              "leftValue": "={{ $json.clientVerified }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
         }
       }
     },
@@ -79,7 +132,10 @@
       "name": "Skip — Not Client",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1500, 200],
+      "position": [
+        1500,
+        200
+      ],
       "parameters": {}
     },
     {
@@ -87,8 +143,16 @@
       "name": "Check Pending QA",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1500, 600],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        1500,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT COUNT(*)::int AS pending_count\nFROM pipemind.approval_drafts\nWHERE feature_tag = 'F-02'\n  AND status = 'pending'\n  AND expires_at > now();"
@@ -99,10 +163,22 @@
       "name": "Too Many Pending?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1750, 600],
+      "position": [
+        1750,
+        600
+      ],
       "parameters": {
         "conditions": {
-          "conditions": [{ "leftValue": "={{ $json.pending_count }}", "rightValue": 2, "operator": { "type": "number", "operation": "gte" } }]
+          "conditions": [
+            {
+              "leftValue": "={{ $json.pending_count }}",
+              "rightValue": 2,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ]
         }
       }
     },
@@ -111,7 +187,10 @@
       "name": "Skip — Too Many Pending",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [2000, 400],
+      "position": [
+        2000,
+        400
+      ],
       "parameters": {}
     },
     {
@@ -119,16 +198,28 @@
       "name": "Fetch GitHub Signals",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2000, 750],
+      "position": [
+        2000,
+        750
+      ],
       "parameters": {
         "method": "GET",
         "url": "={{ 'https://api.github.com/repos/' + $env.GITHUB_OWNER + '/' + $env.GITHUB_REPO + '/pulls?state=all&sort=updated&direction=desc&per_page=30' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization",        "value": "={{ 'Bearer ' + $env.GITHUB_TOKEN }}" },
-            { "name": "Accept",               "value": "application/vnd.github.v3+json" },
-            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.v3+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
           ]
         },
         "options": {}
@@ -139,7 +230,10 @@
       "name": "Strip GitHub Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2250, 750],
+      "position": [
+        2250,
+        750
+      ],
       "parameters": {
         "jsCode": "const raw = $input.first().json;\nconst prs = Array.isArray(raw) ? raw : [];\nconst stripped = prs.map(pr => ({\n  state: pr.state || 'open',\n  labels: Array.isArray(pr.labels) ? pr.labels.map(l => ({ name: String(l.name || '') })) : []\n}));\nreturn [{ json: stripped }];"
       }
@@ -149,15 +243,24 @@
       "name": "Fetch Jira Signals",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2500, 750],
+      "position": [
+        2500,
+        750
+      ],
       "parameters": {
         "method": "GET",
         "url": "={{ $env.JIRA_BASE_URL + '/rest/api/3/search?jql=project%3D' + $env.JIRA_PROJECT_KEY + '%20ORDER%20BY%20updated%20DESC&maxResults=30&fields=status,labels,components,priority,-summary,-description,-assignee,-reporter,-creator' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "={{ 'Basic ' + $env.JIRA_AUTH }}" },
-            { "name": "Accept",        "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "={{ 'Basic ' + $env.JIRA_AUTH }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
           ]
         },
         "options": {}
@@ -168,7 +271,10 @@
       "name": "Assemble Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2750, 750],
+      "position": [
+        2750,
+        750
+      ],
       "parameters": {
         "jsCode": "const githubData = $('Strip GitHub Fields').item.json;\nconst jiraData = $input.first().json;\n\nconst features = {};\nlet hasData = false;\n\nconst addFeature = key => {\n  if (!features[key]) features[key] = { open_prs: 0, closed_prs: 0, open_issues: 0, closed_issues: 0 };\n};\n\nconst sanitizeLabel = raw => String(raw || '')\n  .toLowerCase()\n  .replace(/[^a-z0-9 \\-]/g, '')\n  .trim()\n  .slice(0, 50) || 'general';\n\nconst prs = Array.isArray(githubData) ? githubData : [];\nfor (const pr of prs.slice(0, 30)) {\n  if (!pr || typeof pr !== 'object') continue;\n  const labels = (pr.labels || []).map(l => sanitizeLabel(l.name)).filter(l => l && l !== 'general');\n  const area = labels.length > 0 ? labels[0] : 'general';\n  addFeature(area);\n  if (pr.state === 'open') features[area].open_prs++;\n  else features[area].closed_prs++;\n  hasData = true;\n}\n\nconst jiraIssues = Array.isArray(jiraData?.issues) ? jiraData.issues : [];\nfor (const issue of jiraIssues.slice(0, 30)) {\n  if (!issue || typeof issue !== 'object') continue;\n  const fields = issue.fields || {};\n  const labels = Array.isArray(fields.labels) ? fields.labels.map(l => sanitizeLabel(l)).filter(Boolean) : [];\n  const components = Array.isArray(fields.components) ? fields.components.map(c => sanitizeLabel(c.name)).filter(Boolean) : [];\n  const area = labels[0] || components[0] || 'general';\n  addFeature(area);\n  const statusName = String(fields.status?.name || '').toLowerCase();\n  if (statusName === 'done' || statusName === 'closed' || statusName === 'resolved') {\n    features[area].closed_issues++;\n  } else {\n    features[area].open_issues++;\n  }\n  hasData = true;\n}\n\nconst lines = [];\nif (!hasData) {\n  lines.push('No supplementary signal data available from GitHub or Jira at this time.');\n} else {\n  for (const [area, counts] of Object.entries(features)) {\n    const parts = [];\n    if (counts.open_prs > 0)      parts.push(counts.open_prs + ' open PR(s)');\n    if (counts.closed_prs > 0)    parts.push(counts.closed_prs + ' merged/closed PR(s)');\n    if (counts.open_issues > 0)   parts.push(counts.open_issues + ' open ticket(s)');\n    if (counts.closed_issues > 0) parts.push(counts.closed_issues + ' resolved ticket(s)');\n    if (parts.length > 0) lines.push('- ' + area + ': ' + parts.join(', '));\n  }\n}\n\nconst question = $('Filter Message').item.json.content;\nreturn [{ json: {\n  signal_summary: lines.join('\\n'),\n  has_signals: hasData,\n  client_question: question\n} }];"
       }
@@ -178,9 +284,12 @@
       "name": "Build Ollama Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3000, 750],
+      "position": [
+        3000,
+        750
+      ],
       "parameters": {
-        "jsCode": "const ctx = $input.first().json;\n\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst host = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst isPrivate =\n  host === 'localhost' ||\n  /^127\\./.test(host) ||\n  /^10\\./.test(host) ||\n  /^192\\.168\\./.test(host) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(host) ||\n  /^100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\./.test(host) ||\n  /^169\\.254\\./.test(host) ||\n  /^\\[?::1\\]?$/.test(host) ||\n  /^\\[?fe80:/i.test(host) ||\n  /\\.(internal|local|corp|lan)$/i.test(host) ||\n  !host.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL must be a private/local endpoint. Do not send client data to a public LLM.');\n}\n\n// C-02: strip control chars and template delimiters — prevents newline/token injection\nconst safeQuestion = String(ctx.client_question || '')\n  .replace(/[\\x00-\\x1F\\x7F<>|]/g, ' ')\n  .trim()\n  .slice(0, 1000);\n\nconst signalText = ctx.has_signals\n  ? ctx.signal_summary\n  : 'No activity data is currently available from GitHub or Jira.';\n\nconst systemPrompt = [\n  'You are a project coordinator answering a client question on behalf of the project team.',\n  '',\n  'ABSOLUTE RULES:',\n  '1. Answer ONLY at the project and feature level. No individual names, Discord handles, or IDs of any kind.',\n  '2. Do not attribute work, progress, or status to any specific person.',\n  '3. Base your answer ONLY on the project context provided. Do not invent or assume status.',\n  '4. If you cannot answer confidently from the context, respond with exactly: HOLDING_RESPONSE',\n  '5. Keep the reply concise, professional, and client-appropriate.',\n  '6. Return ONLY the reply text. No preamble, no meta-commentary, no quotation marks.'\n].join('\\n');\n\nconst userMsg = [\n  'Client question: ' + safeQuestion,\n  '',\n  'Current project context:',\n  signalText,\n  '',\n  'Answer the client question. If you cannot answer from the context, respond with: HOLDING_RESPONSE'\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.3,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user',   content: userMsg }\n  ]\n} }];"
+        "jsCode": "const ctx = $input.first().json;\n\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst rawHost = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst host = rawHost.replace(/^\\[|\\]$/g, '');\nconst effectiveHost = host.replace(/^::ffff:/i, '');\nconst isPrivate =\n  effectiveHost === 'localhost' ||\n  effectiveHost === '0.0.0.0' ||\n  /^127\\./.test(effectiveHost) ||\n  /^10\\./.test(effectiveHost) ||\n  /^192\\.168\\./.test(effectiveHost) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(effectiveHost) ||\n  /^100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\./.test(effectiveHost) ||\n  /^169\\.254\\./.test(effectiveHost) ||\n  host === '::1' ||\n  /^fe80:/i.test(host) ||\n  /^fc[0-9a-f]{2}:/i.test(host) ||\n  /^fd[0-9a-f]{2}:/i.test(host) ||\n  /\\.(internal|local|corp|lan)$/i.test(effectiveHost) ||\n  !effectiveHost.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL must be a private/local endpoint. Do not send client data to a public LLM.');\n}\n\n// C-02: strip control chars and template delimiters — prevents newline/token injection\nconst safeQuestion = String(ctx.client_question || '')\n  .replace(/[\\x00-\\x1F\\x7F<>|{}]/g, ' ')\n  .trim()\n  .slice(0, 1000);\n\nconst signalText = ctx.has_signals\n  ? ctx.signal_summary\n  : 'No activity data is currently available from GitHub or Jira.';\n\nconst systemPrompt = [\n  'You are a project coordinator answering a client question on behalf of the project team.',\n  '',\n  'ABSOLUTE RULES:',\n  '1. Answer ONLY at the project and feature level. No individual names, Discord handles, or IDs of any kind.',\n  '2. Do not attribute work, progress, or status to any specific person.',\n  '3. Base your answer ONLY on the project context provided. Do not invent or assume status.',\n  '4. If you cannot answer confidently from the context, respond with exactly: HOLDING_RESPONSE',\n  '5. Keep the reply concise, professional, and client-appropriate.',\n  '6. Return ONLY the reply text. No preamble, no meta-commentary, no quotation marks.'\n].join('\\n');\n\nconst userMsg = [\n  'Client question: ' + safeQuestion,\n  '',\n  'Current project context:',\n  signalText,\n  '',\n  'Answer the client question. If you cannot answer from the context, respond with: HOLDING_RESPONSE'\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.3,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user',   content: userMsg }\n  ]\n} }];"
       }
     },
     {
@@ -188,13 +297,21 @@
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3250, 750],
+      "position": [
+        3250,
+        750
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ $env.LLM_BASE_URL }}/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "contentType": "raw",
@@ -207,7 +324,10 @@
       "name": "Extract Answer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3500, 750],
+      "position": [
+        3500,
+        750
+      ],
       "parameters": {
         "jsCode": "const response = $input.first().json;\nconst raw = String(response.choices?.[0]?.message?.content ?? '').trim();\n\nconst HOLDING = 'HOLDING_RESPONSE';\nconst isHolding = !raw || raw === HOLDING || raw.startsWith(HOLDING);\n\nconst draft_text = isHolding\n  ? 'Thank you for your question. We are looking into this and will follow up with you shortly.'\n  : raw;\n\nreturn [{ json: { draft_text, is_holding: isHolding } }];"
       }
@@ -217,8 +337,16 @@
       "name": "Fetch Team Lead",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [3500, 550],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        3500,
+        550
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT discord_id FROM pipemind.roster WHERE active = true AND role = 'team_lead' ORDER BY name ASC LIMIT 1;"
@@ -229,7 +357,10 @@
       "name": "Prepare F-03 Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3750, 750],
+      "position": [
+        3750,
+        750
+      ],
       "parameters": {
         "jsCode": "const answer = $('Extract Answer').item.json;\nconst tlRow = $input.first().json;\n\nif (!String($vars.F03_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-02: n8n variable F03_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\nif (!tlRow || !tlRow.discord_id) {\n  throw new Error('F-02: No active team_lead found in roster. Add a member with role=team_lead.');\n}\n\nreturn [{ json: {\n  feature_tag: 'F-02',\n  content_type: 'qa_reply',\n  draft_text: answer.draft_text,\n  approver_discord_id: String(tlRow.discord_id),\n  approval_channel_id: $env.TEAM_LEAD_APPROVAL_CHANNEL_ID,\n  context_json: {\n    client_channel_id: $env.CLIENT_CHANNEL_ID\n  }\n} }];"
       }
@@ -239,7 +370,10 @@
       "name": "Call F-03 Approval Gate",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [4000, 750],
+      "position": [
+        4000,
+        750
+      ],
       "parameters": {
         "source": "database",
         "workflowId": {
@@ -256,50 +390,268 @@
       "name": "Return Draft Info",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [4250, 750],
+      "position": [
+        4250,
+        750
+      ],
       "parameters": {
         "mode": "manual",
         "fields": {
           "values": [
-            { "name": "draft_id",           "value": "={{ $json.draft_id }}" },
-            { "name": "discord_message_id", "value": "={{ $json.discord_message_id }}" },
-            { "name": "expires_at",         "value": "={{ $json.expires_at }}" }
+            {
+              "name": "draft_id",
+              "value": "={{ $json.draft_id }}"
+            },
+            {
+              "name": "discord_message_id",
+              "value": "={{ $json.discord_message_id }}"
+            },
+            {
+              "name": "expires_at",
+              "value": "={{ $json.expires_at }}"
+            }
           ]
         }
       }
     }
   ],
   "connections": {
-    "Discord Events":          { "main": [[{ "node": "Filter Message",          "type": "main", "index": 0 }]] },
-    "Filter Message":          { "main": [[{ "node": "Skip?",                   "type": "main", "index": 0 }]] },
-    "Skip?":                   { "main": [
-      [{ "node": "Skip — Invalid Message",   "type": "main", "index": 0 }],
-      [{ "node": "Fetch Client Identity",    "type": "main", "index": 0 }]
-    ]},
-    "Fetch Client Identity":   { "main": [[{ "node": "Verify Client",           "type": "main", "index": 0 }]] },
-    "Verify Client":           { "main": [[{ "node": "Client Verified?",        "type": "main", "index": 0 }]] },
-    "Client Verified?":        { "main": [
-      [{ "node": "Skip — Not Client",        "type": "main", "index": 0 }],
-      [{ "node": "Check Pending QA",         "type": "main", "index": 0 }]
-    ]},
-    "Check Pending QA":        { "main": [[{ "node": "Too Many Pending?",       "type": "main", "index": 0 }]] },
-    "Too Many Pending?":       { "main": [
-      [{ "node": "Skip — Too Many Pending",  "type": "main", "index": 0 }],
-      [{ "node": "Fetch GitHub Signals",     "type": "main", "index": 0 }]
-    ]},
-    "Fetch GitHub Signals":    { "main": [[{ "node": "Strip GitHub Fields",     "type": "main", "index": 0 }]] },
-    "Strip GitHub Fields":     { "main": [[{ "node": "Fetch Jira Signals",      "type": "main", "index": 0 }]] },
-    "Fetch Jira Signals":      { "main": [[{ "node": "Assemble Context",        "type": "main", "index": 0 }]] },
-    "Assemble Context":        { "main": [[{ "node": "Build Ollama Request",    "type": "main", "index": 0 }]] },
-    "Build Ollama Request":    { "main": [[{ "node": "Call Ollama",             "type": "main", "index": 0 }]] },
-    "Call Ollama":             { "main": [[{ "node": "Extract Answer",          "type": "main", "index": 0 }]] },
-    "Extract Answer":          { "main": [[{ "node": "Fetch Team Lead",         "type": "main", "index": 0 }]] },
-    "Fetch Team Lead":         { "main": [[{ "node": "Prepare F-03 Input",      "type": "main", "index": 0 }]] },
-    "Prepare F-03 Input":      { "main": [[{ "node": "Call F-03 Approval Gate", "type": "main", "index": 0 }]] },
-    "Call F-03 Approval Gate": { "main": [[{ "node": "Return Draft Info",       "type": "main", "index": 0 }]] }
+    "Discord Events": {
+      "main": [
+        [
+          {
+            "node": "Filter Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Message": {
+      "main": [
+        [
+          {
+            "node": "Skip?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip?": {
+      "main": [
+        [
+          {
+            "node": "Skip — Invalid Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Client Identity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Client Identity": {
+      "main": [
+        [
+          {
+            "node": "Verify Client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Client": {
+      "main": [
+        [
+          {
+            "node": "Client Verified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Client Verified?": {
+      "main": [
+        [
+          {
+            "node": "Skip — Not Client",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Pending QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Pending QA": {
+      "main": [
+        [
+          {
+            "node": "Too Many Pending?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Too Many Pending?": {
+      "main": [
+        [
+          {
+            "node": "Skip — Too Many Pending",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch GitHub Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch GitHub Signals": {
+      "main": [
+        [
+          {
+            "node": "Strip GitHub Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip GitHub Fields": {
+      "main": [
+        [
+          {
+            "node": "Fetch Jira Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Jira Signals": {
+      "main": [
+        [
+          {
+            "node": "Assemble Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Context": {
+      "main": [
+        [
+          {
+            "node": "Build Ollama Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ollama Request": {
+      "main": [
+        [
+          {
+            "node": "Call Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama": {
+      "main": [
+        [
+          {
+            "node": "Extract Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Answer": {
+      "main": [
+        [
+          {
+            "node": "Fetch Team Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Team Lead": {
+      "main": [
+        [
+          {
+            "node": "Prepare F-03 Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare F-03 Input": {
+      "main": [
+        [
+          {
+            "node": "Call F-03 Approval Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call F-03 Approval Gate": {
+      "main": [
+        [
+          {
+            "node": "Return Draft Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": true,
-  "settings": { "executionOrder": "v1" },
-  "meta": { "instanceId": "pipemind" },
-  "tags": [{ "name": "client-qa" }, { "name": "p0" }, { "name": "f-02" }]
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "client-qa"
+    },
+    {
+      "name": "p0"
+    },
+    {
+      "name": "f-02"
+    }
+  ]
 }
