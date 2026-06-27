@@ -18,7 +18,7 @@
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT draft_id, content_type,\n       COALESCE(edited_text, draft_text) AS final_text,\n       context_json\nFROM pipemind.approval_drafts\nWHERE draft_id = $1::uuid AND status = 'approved' AND boundary_audit_passed = TRUE;",
+        "query": "SELECT draft_id, content_type,\n       COALESCE(edited_text, draft_text) AS final_text,\n       edited_text,\n       context_json,\n       approver_discord_id,\n       discord_channel_id\nFROM pipemind.approval_drafts\nWHERE draft_id = $1::uuid AND status = 'approved' AND boundary_audit_passed = TRUE;",
         "additionalFields": {
           "queryParams": "={{ [ $('Delivery Input').item.json.draft_id ] }}"
         }
@@ -48,7 +48,8 @@
           "values": [
             { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "report",   "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "report" },
             { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "qa_reply", "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "qa_reply" },
-            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "welcome",  "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "welcome" }
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "welcome",     "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "welcome" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "time_entry", "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "time_entry" }
           ]
         }
       }
@@ -314,6 +315,151 @@
       }
     },
     {
+      "id": "dedup-clockify",
+      "name": "Dedup Clockify",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1000, 800],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "additionalFields": {
+          "queryParams": "={{ [ 'clockify_write:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-clockify-new",
+      "name": "Clockify Not Yet Written?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 800],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "fetch-dev-clockify-id",
+      "name": "Fetch Dev Clockify ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1500, 800],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT clockify_user_id FROM pipemind.roster WHERE discord_id = $1 AND active = TRUE AND role = 'developer' LIMIT 1;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Fetch Approved Draft').item.json.approver_discord_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "parse-time-entry",
+      "name": "Parse Time Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1750, 800],
+      "parameters": {
+        "jsCode": "const draft = $('Fetch Approved Draft').item.json;\nconst clockifyUserId = $json.clockify_user_id;\nif (!clockifyUserId) {\n  throw new Error('F-07 delivery aborted: no clockify_user_id in roster for approver_discord_id ' + draft.approver_discord_id);\n}\n\nconst contextJson = typeof draft.context_json === 'object' ? draft.context_json : {};\n\n// CRIT-03: validate draft_hours -- reject 0, negative, non-finite, >16h values\nconst rawDraftHours = Number(contextJson.draft_hours);\nconst draftHours = (isFinite(rawDraftHours) && rawDraftHours > 0 && rawDraftHours <= 16) ? rawDraftHours : 8;\n\n// MED-03: strip non-printable chars and clamp before it reaches Clockify description\nconst featureArea = String(contextJson.feature_area || 'General').replace(/[^\\x20-\\x7E]/g, '').slice(0, 80) || 'General';\n\n// CRIT-02: cap edited hours at 16h (same as draftHours max)\nlet finalHours = draftHours;\nconst editedText = String(draft.edited_text || '').trim();\nconst hourMatch = editedText.match(/^edit\\s+(\\d+(?:\\.\\d+)?)\\s*h(?:ours?)?/i);\nif (hourMatch) {\n  const parsed = parseFloat(hourMatch[1]);\n  if (!isNaN(parsed) && parsed > 0 && parsed <= 16) {\n    finalHours = parsed;\n  }\n}\n\n// Compute start/end based on EOD_TIME env var (e.g., '17:00' or '17:00:00')\nconst eodTime = String($env.EOD_TIME || '17:00');\nconst [eodHour, eodMin] = eodTime.split(':').map(n => parseInt(n, 10));\nconst today = new Date();\nconst endTime  = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), eodHour || 17, eodMin || 0, 0));\nconst startTime = new Date(endTime.getTime() - finalHours * 3_600_000);\n\n// CRIT-02: cross-day guard -- reject entries that would cross midnight\nif (startTime.getUTCDate() !== endTime.getUTCDate()) {\n  throw new Error('F-07 delivery aborted: ' + finalHours + 'h entry would cross midnight (end=' + endTime.toISOString() + '). Reduce hours or check EOD_TIME config.');\n}\n\nreturn [{ json: {\n  draft_id:            draft.draft_id,\n  discord_channel_id:  draft.discord_channel_id,\n  clockify_user_id:    clockifyUserId,\n  feature_area:        featureArea,\n  final_hours:         finalHours,\n  description:         featureArea !== 'General' ? 'Work on the ' + featureArea + ' feature' : 'General development work',\n  start_iso:           startTime.toISOString(),\n  end_iso:             endTime.toISOString()\n} }];"
+      }
+    },
+    {
+      "id": "write-clockify-entry",
+      "name": "Write Clockify Entry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 800],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/user/${$json.clockify_user_id}/time-entries` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Api-Key",    "value": "={{ $env.CLOCKIFY_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ start: $json.start_iso, end: $json.end_iso, description: $json.description }) }}"
+      }
+    },
+    {
+      "id": "if-clockify-write-ok",
+      "name": "If Clockify Write OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2250, 800],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.id }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }]
+        }
+      }
+    },
+    {
+      "id": "notify-write-error-dm",
+      "name": "Notify Write Error DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 950],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Time Entry').item.json.discord_channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time log was approved but Clockify returned an error when we tried to write the entry. Please log your time manually in Clockify for today. The team lead has been notified.' }) }}"
+      }
+    },
+    {
+      "id": "log-clockify-delivered",
+      "name": "Log Clockify Delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2750, 800],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'clockify_write', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Parse Time Entry').item.json.draft_id, 'clockify_write:' + $('Parse Time Entry').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "confirm-dev-dm",
+      "name": "Confirm Dev DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3000, 800],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Time Entry').item.json.discord_channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time entry has been logged in Clockify: ' + $('Parse Time Entry').item.json.final_hours + 'h on ' + $('Parse Time Entry').item.json.feature_area + '. All done for today!' }) }}"
+      }
+    },
+    {
       "id": "no-op-not-found",
       "name": "Skip — Draft Not Found",
       "type": "n8n-nodes-base.noOp",
@@ -330,10 +476,24 @@
       [{ "node": "Skip — Draft Not Found",  "type": "main", "index": 0 }]
     ]},
     "Route by Content Type": {
-      "report":   [[{ "node": "Dedup Drive",      "type": "main", "index": 0 }]],
-      "qa_reply": [[{ "node": "Dedup Discord QA", "type": "main", "index": 0 }]],
-      "welcome":  [[{ "node": "Dedup Welcome",    "type": "main", "index": 0 }]]
+      "report":     [[{ "node": "Dedup Drive",      "type": "main", "index": 0 }]],
+      "qa_reply":   [[{ "node": "Dedup Discord QA", "type": "main", "index": 0 }]],
+      "welcome":    [[{ "node": "Dedup Welcome",    "type": "main", "index": 0 }]],
+      "time_entry": [[{ "node": "Dedup Clockify",   "type": "main", "index": 0 }]]
     },
+    "Dedup Clockify":          { "main": [[{ "node": "Clockify Not Yet Written?",  "type": "main", "index": 0 }]] },
+    "Clockify Not Yet Written?": { "main": [
+      [{ "node": "Fetch Dev Clockify ID", "type": "main", "index": 0 }],
+      []
+    ]},
+    "Fetch Dev Clockify ID":   { "main": [[{ "node": "Parse Time Entry",          "type": "main", "index": 0 }]] },
+    "Parse Time Entry":        { "main": [[{ "node": "Write Clockify Entry",       "type": "main", "index": 0 }]] },
+    "Write Clockify Entry":    { "main": [[{ "node": "If Clockify Write OK?",       "type": "main", "index": 0 }]] },
+    "If Clockify Write OK?":   { "main": [
+      [{ "node": "Log Clockify Delivered",  "type": "main", "index": 0 }],
+      [{ "node": "Notify Write Error DM",   "type": "main", "index": 0 }]
+    ]},
+    "Log Clockify Delivered":  { "main": [[{ "node": "Confirm Dev DM",             "type": "main", "index": 0 }]] },
     "Dedup Drive":            { "main": [[{ "node": "Drive Not Yet Saved?",     "type": "main", "index": 0 }]] },
     "Drive Not Yet Saved?":   { "main": [
       [{ "node": "Save to Drive",           "type": "main", "index": 0 }],

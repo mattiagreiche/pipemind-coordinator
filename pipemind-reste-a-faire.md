@@ -67,16 +67,20 @@ F01_WORKFLOW_ID  → ID de  "04 — F-01: Client Progress Report"
 - SC-12 : mute flag filtré en DB (WHERE muted = FALSE)
 - Audité sécurité : H-01 (nom exclu des logs execution), H-02 (Clockify strip userId-only), M-01 (continueOnFail sur DM nodes), M-02 (discord_id forwarded explicitement via Merge Send Result), M-03 (slice(0,50) freeBusy), M-04 (TL notification SC-18), L-02 (muted_at trigger), L-03 ([Pipemind] attribution) fixés
 
-### F-07 — Time-Logging Helper
+### ✅ F-07 — Time-Logging Helper — FAIT
 
-- En fin de journée (`EOD_TIME`)
-- Suggérer des entrées Clockify basées sur Git/Calendar
-- Draft → approbation dev → écriture Clockify (write approuvé uniquement)
-- Dépend de F-14 pour l'historique
+- Migration 005 : `content_type` élargi à `'time_entry'` dans `approval_drafts`
+- Workflow 11 : Schedule EOD → Roster guard → Fetch status (already_offered) → Clockify time-off → Strip → Calendar → Compute Actions (SC-06a/SC-18) → Split → Fetch standup (LEFT JOIN) → Check Dev Clockify Today → Build Draft or Route → Switch (offer / info_dm)
+  - `offer` : Open DM → Create Approval Draft (RETURNING) → Send Draft DM → Merge Offer Result → If DM Sent? → Log Outreach
+  - `info_dm` : Open DM → Send Info DM → Log Outreach
+- 01c étendu : Route time_entry → Dedup Clockify → Fetch Dev Clockify ID → Parse Time Entry (hours from context_json + edited_text override) → Write Clockify Entry → Log Clockify Delivered → Confirm Dev DM
+- Idempotent : dedup_key = `clockify_write:{draft_id}` dans delivered_actions
+- SC-05 : Clockify entries existantes aujourd'hui → info_dm, jamais d'interprétation comme blocage
+- **TODO connu** : Le DM response listener (gestionnaire des réponses "yes"/"edit Xh"/"no") n'est pas encore implémenté. La route doit être ajoutée à F-17 (workflow 07) pour détecter les commandes d'approbation dans les DM développeurs et appeler le delivery executor (01c) avec le draft_id.
 
 ### Ordre recommandé P1
 ```
-✅ F-14 → ✅ F-04 → F-05 → F-07
+✅ F-14 → ✅ F-04 → ✅ F-05 → ✅ F-07
 ```
 
 ---
