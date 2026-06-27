@@ -23,6 +23,12 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - pipemind-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     # Uncomment for GPU support:
     # deploy:
     #   resources:
@@ -90,12 +96,12 @@ services:
       postgres:
         condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
 
 networks:
   pipemind-internal:
     driver: bridge
-    internal: false
+    internal: true
 
 volumes:
   postgres_data:
