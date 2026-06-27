@@ -1,94 +1,85 @@
-je coris # Pipemind — Reste à faire
+# Pipemind — Reste à faire
 Branche de travail : `dev/justin`
-Mis à jour : 2026-06-23
+Mis à jour : 2026-06-25
 
 ---
 
-## Fait (cette session)
+## Fait — P0 complet
 
-- [x] Infrastructure : `docker-compose.yml`, `.env.example`, `config/roster.example.json`
-- [x] DB : migration `001-init-pipemind-schema.sql` — toutes les tables pipemind
-- [x] **F-03** : Approval Gate (3 workflows : 01, 01b, 01c) — audité et durci par l'agent sécurité
+### Infrastructure & DB
+- [x] `docker-compose.yml`, `.env.example`, `config/roster.example.json`
+- [x] Migration `001-init-pipemind-schema.sql` — toutes les tables pipemind
+- [x] Workflow 00 — Startup / Config Validation (validé + durci)
 
----
+### Workflows P0 (tous audités par l'agent sécurité)
+- [x] **F-03** — Approval Gate (01, 01b, 01c + delivery executor 01c)
+- [x] **F-08** — Aggregation Boundary (sous-workflow réutilisable)
+- [x] **F-16** — Team Lead Interaction (listener Discord channel TL)
+- [x] **F-01** — Client Progress Report (schedule + on-demand, idempotent)
+- [x] **F-02** — Client Q&A (Discord client channel → F-08 → F-03)
+- [x] **F-15** — Client Welcome (guildMemberAdd, atomic slot claim)
+- [x] **F-17** — Developer Queries (DM, pas de gate, audit SC-03 local)
 
-## P0 — À construire maintenant
-
-### Workflow 00 — Startup / Config Validation
-
-Doit tourner au démarrage de n8n et toutes les 5 min.
-
-- Lire `/config/roster.json`
-- Valider le JSON (champs requis : name, discord_id, role, clockify_user_id)
-- Upsert toutes les entrées dans `pipemind.roster`
-- Mettre `system_state.roster_valid = 'true'`
-- **Fail visible** si le fichier est absent ou invalide (SC-19)
-
-### F-08 — Aggregation Boundary (nœud d'audit)
-
-Prérequis pour F-01, F-02, F-15.
-
-- Nœud Code réutilisable qui vérifie le draft_text avant appel à F-03
-- Bloque si le texte contient une attribution individuelle (nom, discord_id, chiffres par dev)
-- Retourne `boundary_audit_passed: true` seulement si le texte est 100 % projet-level
-- Inclure le system prompt Ollama qui force l'agrégation
-
-### F-16 — Team Lead Interaction (Discord listener)
-
-- Écouter le channel TL restreint sur Discord
-- Commandes : `/status`, `/report`, `/qa`, `/help`
-- Toutes les réponses passent par F-03 (draft → approbation → envoi)
-
-### F-01 — Client Report
-
-- Déclenché par `REPORT_DAY_TIME` (vendredi 17:00)
-- Agréger les signaux (GitHub, Jira — feature-level seulement, jamais individuel)
-- Passer par F-08 → F-03 → livraison Drive + Gmail
-
-### F-02 — Client Q&A
-
-- Écouter le channel client Discord
-- LLM génère une réponse projet-level
-- Passer par F-08 → F-03 → livraison discord_qa
-
-### F-15 — Client Welcome
-
-- Déclenché une seule fois par client (table `client_welcomed` protège contre le doublon)
-- Passer par F-03 → livraison discord_welcome
-- Mettre à jour `client_welcomed` après envoi
-
-### F-17 — Developer Queries
-
-- Écouter les DMs des devs
-- Répondre à des questions sur leur propre agenda, Clockify, calendrier
-- Données individuelles restent dans le DM — jamais agrégées vers le TL
+### Sécurité P0 — patterns universels en place
+- SC-11 : LLM endpoint private-only (+ IPv6 ULA, `::ffff:`, `0.0.0.0`) dans F-08 et F-17
+- SC-03 : zero attribution individuelle (normalize + hasWordBoundary + metric patterns) dans F-08 et F-17
+- safeQuestion : strip control chars + `<>|{}` dans F-02 et F-17
+- Approval gate : F-03 avant tout envoi client (F-01, F-02, F-15)
+- Idempotence : `ON CONFLICT DO NOTHING RETURNING` dans F-01 et F-15
+- Validate channel : assert `context_json.client_channel_id === $env.CLIENT_CHANNEL_ID` dans delivery executor
 
 ---
 
-## P1 — Après P0
+## Avant de tester en vrai
+
+### Variables n8n à setter après import (Settings → Variables)
+```
+F08_WORKFLOW_ID  → ID de  "02 — F-08: Aggregation Boundary"
+F03_WORKFLOW_ID  → ID de  "01 — F-03: Approval Gate"
+F01_WORKFLOW_ID  → ID de  "04 — F-01: Client Progress Report"
+```
+
+### Discord Developer Portal
+- Activer le privileged intent **GUILD_MEMBERS** pour que F-15 reçoive les `guildMemberAdd` events
+
+---
+
+## P1 — Prochaine session
 
 ### F-14 — Persistent Memory (Postgres)
 
+Fondement de la continuité. Sans ça, chaque workflow repart de zéro.
+
 - Stocker le contexte conversationnel par dev / par projet
-- Needed pour Q&A contextuel (F-02) et check-ins (F-05)
+- F-01 doit pouvoir citer le dernier rapport envoyé
+- F-02 doit maintenir un historique de Q&A par client
+- Needed pour check-ins (F-05) et time-logging (F-07)
 
 ### F-04 — Standup Ingestion
 
 - Surveiller Google Drive (dossier `DRIVE_FOLDER_ID`) pour de nouveaux transcripts
 - Parser, anonymiser, stocker dans Postgres
-- Nourrir F-01 et F-16
+- Nourrir F-01 et F-16 avec des signaux standup
+- **SC-14** : sanitiser le contenu du transcript avant tout passage en expression n8n
 
 ### F-05 — Check-ins Développeurs
 
 - DM optionnel à chaque dev le matin (vérifier Clockify/Calendar avant)
 - **SC-06** : contacter seulement les gens schedulés ce jour-là
 - Le dev peut répondre ou ignorer — jamais de relance
+- Résultats agrégés (pas nominatifs) vers TL via F-03
 
 ### F-07 — Time-Logging Helper
 
 - En fin de journée (`EOD_TIME`)
 - Suggérer des entrées Clockify basées sur Git/Calendar
 - Draft → approbation dev → écriture Clockify (write approuvé uniquement)
+- Dépend de F-14 pour l'historique
+
+### Ordre recommandé P1
+```
+F-14 → F-04 → F-05 → F-07
+```
 
 ---
 
@@ -104,22 +95,9 @@ Prérequis pour F-01, F-02, F-15.
 
 ## Dettes techniques / Sécurité
 
-| Priorité | Item                                      | Détail                                                                                                                      |
-| -------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| MED      | HIGH-04 : Validation channel draft expiré | Dans 01b, `Notify Expired` envoie au `discord_channel_id` du draft — pas de validation que ce channel est encore accessible |
-| LOW      | Workflow 06 — Expiry Janitor              | Tâche cron qui passe les drafts `pending` expirés à `expired` dans la DB                                                    |
-| LOW      | Docker network `internal: false`          | Le réseau pipemind-internal est accessible depuis l'hôte — à durcir avant prod                                              |
-
----
-
-## Ordre recommandé
-
-```
-Workflow 00 → F-08 → F-16 → F-01 → F-02 → F-15 → F-17
-                                                         ↓
-                                             Workflow 06 (janitor)
-                                                         ↓
-                                              P1 : F-14 → F-04 → F-05 → F-07
-```
-
-> Rappel : après chaque feature, appeler l'agent `security` avant de committer.
+| Priorité | Item | Détail |
+|----------|------|--------|
+| MED | HIGH-04 : Validation channel draft expiré | Dans 01b, `Notify Expired` envoie au `discord_channel_id` du draft — pas de validation que ce channel est encore le bon |
+| MED | F-17 : SC-03 local vs F-08 | F-17 audite SC-03 localement sans passer par F-08 — un seul point de vérité serait mieux. Refacto à planifier en P1. |
+| LOW | Workflow 06 — Expiry Janitor | Cron qui passe les drafts `pending` expirés à `expired` dans la DB |
+| LOW | Docker network `internal: false` | Le réseau pipemind-internal est accessible depuis l'hôte — à durcir avant prod |
