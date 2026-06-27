@@ -1,6 +1,6 @@
 # Pipemind — Reste à faire
 Branche de travail : `dev/justin`
-Mis à jour : 2026-06-25
+Mis à jour : 2026-06-27
 
 ---
 
@@ -44,16 +44,13 @@ F01_WORKFLOW_ID  → ID de  "04 — F-01: Client Progress Report"
 
 ---
 
-## P1 — Prochaine session
+## P1 — En cours
 
-### F-14 — Persistent Memory (Postgres)
+### ✅ F-14 — Persistent Memory (Postgres) — FAIT
 
-Fondement de la continuité. Sans ça, chaque workflow repart de zéro.
-
-- Stocker le contexte conversationnel par dev / par projet
-- F-01 doit pouvoir citer le dernier rapport envoyé
-- F-02 doit maintenir un historique de Q&A par client
-- Needed pour check-ins (F-05) et time-logging (F-07)
+- Migration 003 : tables `project_signals`, `standup_records`, `outreach_log`, `qa_history`
+- Workflow 08 : sous-workflow `memory-reader` — purpose-gated (`report` / `tl_internal` / `dev_self`)
+- Audité sécurité : HIGH-1 (SQL paramétrisé), HIGH-2 (roster guard), MED-1–4 fixés
 
 ### F-04 — Standup Ingestion
 
@@ -78,7 +75,7 @@ Fondement de la continuité. Sans ça, chaque workflow repart de zéro.
 
 ### Ordre recommandé P1
 ```
-F-14 → F-04 → F-05 → F-07
+✅ F-14 → F-04 → F-05 → F-07
 ```
 
 ---
