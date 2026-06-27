@@ -6,16 +6,31 @@
       "name": "Discord Events",
       "type": "n8n-nodes-base.discordTrigger",
       "typeVersion": 1,
-      "position": [0, 300],
-      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
-      "parameters": { "events": ["messageCreate"] }
+      "position": [
+        0,
+        300
+      ],
+      "credentials": {
+        "discordBotApi": {
+          "id": "pipemindDiscord",
+          "name": "Pipemind Discord Bot"
+        }
+      },
+      "parameters": {
+        "events": [
+          "messageCreate"
+        ]
+      }
     },
     {
       "id": "filter-dm-message",
       "name": "Filter DM Message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "parameters": {
         "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\nif (event.t !== 'MESSAGE_CREATE' && event.type !== 0) {\n  return [{ json: { skip: true } }];\n}\n// DMs have no guild_id; additionally check channel_type === 1 (DM) if available\nif (d.guild_id || (d.channel_type !== undefined && d.channel_type !== 1)) {\n  return [{ json: { skip: true } }];\n}\nif (d.author?.bot || d.webhook_id) {\n  return [{ json: { skip: true } }];\n}\nconst content = String(d.content || '').trim();\nif (!content) {\n  return [{ json: { skip: true } }];\n}\nreturn [{ json: {\n  skip: false,\n  content,\n  author_id: String(d.author?.id || ''),\n  channel_id: String(d.channel_id || '')\n} }];"
       }
@@ -25,10 +40,22 @@
       "name": "Skip?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [500, 300],
+      "position": [
+        500,
+        300
+      ],
       "parameters": {
         "conditions": {
-          "conditions": [{ "leftValue": "={{ $json.skip }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+          "conditions": [
+            {
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
         }
       }
     },
@@ -37,7 +64,10 @@
       "name": "Skip — Not DM",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [750, 100],
+      "position": [
+        750,
+        100
+      ],
       "parameters": {}
     },
     {
@@ -45,8 +75,16 @@
       "name": "Fetch Roster",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [750, 450],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        750,
+        450
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT name, discord_id FROM pipemind.roster WHERE active = true AND role != 'client';"
@@ -57,7 +95,10 @@
       "name": "Verify Developer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1000, 450],
+      "position": [
+        1000,
+        450
+      ],
       "parameters": {
         "jsCode": "const msg = $('Filter DM Message').item.json;\nconst authorId = String(msg.author_id || '');\nconst rows = $input.all();\nif (!rows.length) {\n  return [{ json: { devVerified: false } }];\n}\nconst member = rows.find(r => String(r.json.discord_id || '').trim() === authorId);\nreturn [{ json: {\n  devVerified: !!member,\n  author_id: authorId,\n  channel_id: msg.channel_id,\n  content: msg.content\n} }];"
       }
@@ -67,10 +108,22 @@
       "name": "Developer Verified?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1250, 450],
+      "position": [
+        1250,
+        450
+      ],
       "parameters": {
         "conditions": {
-          "conditions": [{ "leftValue": "={{ $json.devVerified }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+          "conditions": [
+            {
+              "leftValue": "={{ $json.devVerified }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
         }
       }
     },
@@ -79,7 +132,10 @@
       "name": "Skip — Not Developer",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1500, 200],
+      "position": [
+        1500,
+        200
+      ],
       "parameters": {}
     },
     {
@@ -87,16 +143,28 @@
       "name": "Fetch GitHub Signals",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1500, 600],
+      "position": [
+        1500,
+        600
+      ],
       "parameters": {
         "method": "GET",
         "url": "={{ 'https://api.github.com/repos/' + $env.GITHUB_OWNER + '/' + $env.GITHUB_REPO + '/pulls?state=all&sort=updated&direction=desc&per_page=30' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization",        "value": "={{ 'Bearer ' + $env.GITHUB_TOKEN }}" },
-            { "name": "Accept",               "value": "application/vnd.github.v3+json" },
-            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.v3+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
           ]
         },
         "options": {}
@@ -107,7 +175,10 @@
       "name": "Strip GitHub Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1750, 600],
+      "position": [
+        1750,
+        600
+      ],
       "parameters": {
         "jsCode": "const raw = $input.first().json;\nconst prs = Array.isArray(raw) ? raw : [];\nconst stripped = prs.map(pr => ({\n  state: pr.state || 'open',\n  labels: Array.isArray(pr.labels) ? pr.labels.map(l => ({ name: String(l.name || '') })) : []\n}));\nreturn [{ json: stripped }];"
       }
@@ -117,15 +188,24 @@
       "name": "Fetch Jira Signals",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2000, 600],
+      "position": [
+        2000,
+        600
+      ],
       "parameters": {
         "method": "GET",
         "url": "={{ $env.JIRA_BASE_URL + '/rest/api/3/search?jql=project%3D' + $env.JIRA_PROJECT_KEY + '%20ORDER%20BY%20updated%20DESC&maxResults=30&fields=status,labels,components,priority,-summary,-description,-assignee,-reporter,-creator' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "={{ 'Basic ' + $env.JIRA_AUTH }}" },
-            { "name": "Accept",        "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "={{ 'Basic ' + $env.JIRA_AUTH }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
           ]
         },
         "options": {}
@@ -136,7 +216,10 @@
       "name": "Assemble Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2250, 600],
+      "position": [
+        2250,
+        600
+      ],
       "parameters": {
         "jsCode": "const githubData = $('Strip GitHub Fields').item.json;\nconst jiraData = $input.first().json;\n\nconst features = {};\nlet hasData = false;\n\nconst addFeature = key => {\n  if (!features[key]) features[key] = { open_prs: 0, closed_prs: 0, open_issues: 0, closed_issues: 0 };\n};\n\nconst sanitizeLabel = raw => String(raw || '')\n  .toLowerCase()\n  .replace(/[^a-z0-9 \\-]/g, '')\n  .trim()\n  .slice(0, 50) || 'general';\n\nconst prs = Array.isArray(githubData) ? githubData : [];\nfor (const pr of prs.slice(0, 30)) {\n  if (!pr || typeof pr !== 'object') continue;\n  const labels = (pr.labels || []).map(l => sanitizeLabel(l.name)).filter(l => l && l !== 'general');\n  const area = labels.length > 0 ? labels[0] : 'general';\n  addFeature(area);\n  if (pr.state === 'open') features[area].open_prs++;\n  else features[area].closed_prs++;\n  hasData = true;\n}\n\nconst jiraIssues = Array.isArray(jiraData?.issues) ? jiraData.issues : [];\nfor (const issue of jiraIssues.slice(0, 30)) {\n  if (!issue || typeof issue !== 'object') continue;\n  const fields = issue.fields || {};\n  const labels = Array.isArray(fields.labels) ? fields.labels.map(l => sanitizeLabel(l)).filter(Boolean) : [];\n  const components = Array.isArray(fields.components) ? fields.components.map(c => sanitizeLabel(c.name)).filter(Boolean) : [];\n  const area = labels[0] || components[0] || 'general';\n  addFeature(area);\n  const statusName = String(fields.status?.name || '').toLowerCase();\n  if (statusName === 'done' || statusName === 'closed' || statusName === 'resolved') {\n    features[area].closed_issues++;\n  } else {\n    features[area].open_issues++;\n  }\n  hasData = true;\n}\n\nconst lines = [];\nif (!hasData) {\n  lines.push('No supplementary signal data available from GitHub or Jira at this time.');\n} else {\n  for (const [area, counts] of Object.entries(features)) {\n    const parts = [];\n    if (counts.open_prs > 0)      parts.push(counts.open_prs + ' open PR(s)');\n    if (counts.closed_prs > 0)    parts.push(counts.closed_prs + ' merged/closed PR(s)');\n    if (counts.open_issues > 0)   parts.push(counts.open_issues + ' open ticket(s)');\n    if (counts.closed_issues > 0) parts.push(counts.closed_issues + ' resolved ticket(s)');\n    if (parts.length > 0) lines.push('- ' + area + ': ' + parts.join(', '));\n  }\n}\n\nreturn [{ json: {\n  signal_summary: lines.join('\\n'),\n  has_signals: hasData,\n  dev_question: $('Verify Developer').item.json.content,\n  channel_id: $('Verify Developer').item.json.channel_id\n} }];"
       }
@@ -146,7 +229,10 @@
       "name": "Build Ollama Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2500, 600],
+      "position": [
+        2500,
+        600
+      ],
       "parameters": {
         "jsCode": "const ctx = $input.first().json;\n\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst rawHost = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst host = rawHost.replace(/^\\[|\\]$/g, '');        // strip IPv6 brackets\nconst effectiveHost = host.replace(/^::ffff:/i, ''); // strip IPv4-mapped prefix\nconst isPrivate =\n  effectiveHost === 'localhost' ||\n  effectiveHost === '0.0.0.0' ||\n  /^127\\./.test(effectiveHost) ||\n  /^10\\./.test(effectiveHost) ||\n  /^192\\.168\\./.test(effectiveHost) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(effectiveHost) ||\n  /^100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\./.test(effectiveHost) ||\n  /^169\\.254\\./.test(effectiveHost) ||\n  host === '::1' ||\n  /^fe80:/i.test(host) ||\n  /^fc[0-9a-f]{2}:/i.test(host) ||\n  /^fd[0-9a-f]{2}:/i.test(host) ||\n  /\\.(internal|local|corp|lan)$/i.test(effectiveHost) ||\n  !effectiveHost.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL must be a private/local endpoint.');\n}\n\n// Strip control chars, template delimiters, and n8n expression delimiters\nconst safeQuestion = String(ctx.dev_question || '')\n  .replace(/[\\x00-\\x1F\\x7F<>|{}]/g, ' ')\n  .trim()\n  .slice(0, 1000);\n\nconst signalText = ctx.has_signals\n  ? ctx.signal_summary\n  : 'No activity data is currently available from GitHub or Jira.';\n\nconst systemPrompt = [\n  'You are a project coordinator answering a developer question about the project.',\n  '',\n  'ABSOLUTE RULES:',\n  '1. Provide project-level and feature-level context only.',\n  '2. Do not name, identify, or attribute work to any specific individual teammate.',\n  '3. If asked who is assigned to something, provide the feature-area context without naming the person.',\n  '4. Base your answer ONLY on the project context provided. Do not invent or assume status.',\n  '5. Keep it concise and factual.',\n  '6. Return ONLY the reply text. No preamble, no meta-commentary.'\n].join('\\n');\n\nconst userMsg = [\n  'Developer question: ' + safeQuestion,\n  '',\n  'Current project context:',\n  signalText\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.3,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user',   content: userMsg }\n  ],\n  _channel_id: ctx.channel_id\n} }];"
       }
@@ -156,13 +242,21 @@
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2750, 600],
+      "position": [
+        2750,
+        600
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ $env.LLM_BASE_URL }}/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "contentType": "raw",
@@ -175,7 +269,10 @@
       "name": "Audit Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3000, 600],
+      "position": [
+        3000,
+        600
+      ],
       "parameters": {
         "jsCode": "const response = $input.first().json;\nconst content = String(response.choices?.[0]?.message?.content ?? '').trim();\n\nif (!content) {\n  return [{ json: { clean: false, reply: '', channel_id: $('Assemble Context').item.json.channel_id } }];\n}\n\nconst rosterRows = $('Fetch Roster').all();\n\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst contentNorm = normalize(content);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\nlet violation = false;\n\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/\\s+/).filter(p => p.length > 0);\n  for (const part of parts) {\n    if (hasWordBoundary(contentNorm, part)) { violation = true; break; }\n  }\n  if (violation) break;\n}\n\nif (!violation) {\n  const ids = rosterRows.map(r => String(r.json.discord_id || '').trim());\n  const digitsOnly = content.replace(/\\D/g, '');\n  const snowflakes = contentNorm.match(/\\b\\d{17,19}\\b/g) || [];\n  for (const id of ids) {\n    if (!id) continue;\n    if (snowflakes.includes(id) || (id.length >= 17 && digitsOnly.includes(id))) {\n      violation = true; break;\n    }\n  }\n}\n\nif (!violation) {\n  const metricPatterns = [\n    /\\b\\d+\\s*commits?\\b/i,\n    /\\b\\d+\\s*(hours?|hrs?)\\s*(logged|tracked|worked)/i,\n    /logged\\s+\\d+\\s*(hours?|hrs?)/i,\n    /\\b(assigned to|done by|completed by|written by|handled by)\\s+\\w+/i,\n    /\\b(he|she|they)\\s+(committed|pushed|closed|opened|wrote|fixed|reviewed|built)\\b/i\n  ];\n  for (const re of metricPatterns) {\n    if (re.test(content)) { violation = true; break; }\n  }\n}\n\nreturn [{ json: {\n  clean: !violation,\n  reply: content,\n  channel_id: $('Assemble Context').item.json.channel_id\n} }];"
       }
@@ -185,10 +282,22 @@
       "name": "Response Clean?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [3250, 600],
+      "position": [
+        3250,
+        600
+      ],
       "parameters": {
         "conditions": {
-          "conditions": [{ "leftValue": "={{ $json.clean }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+          "conditions": [
+            {
+              "leftValue": "={{ $json.clean }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
         }
       }
     },
@@ -197,8 +306,16 @@
       "name": "Post DM Reply",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [3500, 450],
-      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "position": [
+        3500,
+        450
+      ],
+      "credentials": {
+        "discordBotApi": {
+          "id": "pipemindDiscord",
+          "name": "Pipemind Discord Bot"
+        }
+      },
       "parameters": {
         "operation": "sendMessage",
         "channelId": "={{ $json.channel_id }}",
@@ -210,42 +327,722 @@
       "name": "Post Audit Fallback",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [3500, 750],
-      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "position": [
+        3500,
+        750
+      ],
+      "credentials": {
+        "discordBotApi": {
+          "id": "pipemindDiscord",
+          "name": "Pipemind Discord Bot"
+        }
+      },
       "parameters": {
         "operation": "sendMessage",
         "channelId": "={{ $json.channel_id }}",
         "content": "I can provide project-level context only — I'm not able to share individual attribution or name specific teammates. Feel free to ask about a feature area's overall progress instead."
       }
+    },
+    {
+      "id": "detect-approval-cmd",
+      "name": "Detect Approval Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        450
+      ],
+      "parameters": {
+        "jsCode": "const msg = $('Verify Developer').item.json;\nconst content = String(msg.content || '').trim();\nconst discordId = String(msg.author_id || '');\nconst channelId = String(msg.channel_id || '');\n\n// Detect F-07 time-entry approval commands only\nconst isYes = /^yes$/i.test(content);\nconst isNo  = /^no$/i.test(content);\nconst editMatch = content.match(/^edit\\s+(\\d+(?:\\.\\d+)?)\\s*h(?:ours?)?$/i);\nconst isEdit = !!editMatch && (() => {\n  const h = parseFloat(editMatch[1]);\n  return h > 0 && h <= 16;\n})();\n\nconst isApprovalCmd = isYes || isNo || isEdit;\nconst editedText = isEdit ? content : null;\n\nreturn [{ json: {\n  is_approval_cmd: isApprovalCmd,\n  cmd:             isYes ? 'yes' : isNo ? 'no' : isEdit ? 'edit' : null,\n  edited_text:     editedText,\n  discord_id:      discordId,\n  channel_id:      channelId,\n  content\n} }];"
+      }
+    },
+    {
+      "id": "route-msg-type",
+      "name": "Route Message Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1750,
+        450
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.is_approval_cmd }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "approval_cmd"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.is_approval_cmd }}",
+                    "rightValue": false,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "query"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fetch-pending-draft",
+      "name": "Fetch Pending Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2000,
+        650
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT draft_id, discord_channel_id FROM pipemind.approval_drafts WHERE approver_discord_id = $1   AND content_type = 'time_entry'   AND status = 'pending'   AND created_at >= CURRENT_DATE::timestamptz   AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT 1;",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$('Detect Approval Command').item.json.discord_id]) }}"
+        }
+      }
+    },
+    {
+      "id": "draft-found",
+      "name": "Draft Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2250,
+        650
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "no-draft-dm",
+      "name": "No Pending Draft DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        500
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Detect Approval Command').item.json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] There is no pending time log entry waiting for your approval today.' }) }}"
+      }
+    },
+    {
+      "id": "process-decision",
+      "name": "Process Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        800
+      ],
+      "parameters": {
+        "jsCode": "const cmd   = $('Detect Approval Command').item.json;\nconst draft  = $input.first().json;\n\nconst status     = cmd.cmd === 'no' ? 'rejected' : 'approved';\nconst editedText = cmd.cmd === 'edit' ? cmd.edited_text : null;\n\nreturn [{ json: {\n  draft_id:           draft.draft_id,\n  discord_channel_id: draft.discord_channel_id,\n  status,\n  edited_text:        editedText,\n  channel_id:         cmd.channel_id\n} }];"
+      }
+    },
+    {
+      "id": "update-draft-status",
+      "name": "Update Draft Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2750,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.approval_drafts SET status = $2, edited_text = $3 WHERE draft_id = $1::uuid AND status = 'pending' RETURNING draft_id;",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$json.draft_id, $json.status, $json.edited_text]) }}"
+        }
+      }
+    },
+    {
+      "id": "if-approved",
+      "name": "If Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3250,
+        750
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $('Process Decision').item.json.status }}",
+              "rightValue": "approved",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "call-delivery-executor",
+      "name": "Call Delivery Executor",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        3500,
+        650
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $vars.DELIVERY_EXECUTOR_WORKFLOW_ID }}",
+          "mode": "id"
+        },
+        "waitForSubWorkflow": true,
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "draft_id": "={{ $('Process Decision').item.json.draft_id }}"
+          }
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "confirm-rejected-dm",
+      "name": "Confirm Rejected DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3500,
+        850
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Process Decision').item.json.discord_channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Time log skipped for today. No Clockify entry will be created.' }) }}"
+      }
+    },
+    {
+      "id": "if-update-claimed",
+      "name": "If Update Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3000,
+        800
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "already-processed-dm",
+      "name": "Already Processed DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3250,
+        950
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Process Decision').item.json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time log approval was already processed. Check Clockify to confirm your entry.' }) }}"
+      }
+    },
+    {
+      "id": "if-executor-ok",
+      "name": "If Executor OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3500,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "executor-failed-dm",
+      "name": "Executor Failed DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3750,
+        850
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Process Decision').item.json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Your approval was received but we encountered an error writing to Clockify. Please log your time manually for today.' }) }}"
+      }
     }
   ],
   "connections": {
-    "Discord Events":       { "main": [[{ "node": "Filter DM Message",      "type": "main", "index": 0 }]] },
-    "Filter DM Message":    { "main": [[{ "node": "Skip?",                  "type": "main", "index": 0 }]] },
-    "Skip?":                { "main": [
-      [{ "node": "Skip — Not DM",          "type": "main", "index": 0 }],
-      [{ "node": "Fetch Roster",           "type": "main", "index": 0 }]
-    ]},
-    "Fetch Roster":         { "main": [[{ "node": "Verify Developer",       "type": "main", "index": 0 }]] },
-    "Verify Developer":     { "main": [[{ "node": "Developer Verified?",    "type": "main", "index": 0 }]] },
-    "Developer Verified?":  { "main": [
-      [{ "node": "Skip — Not Developer",   "type": "main", "index": 0 }],
-      [{ "node": "Fetch GitHub Signals",   "type": "main", "index": 0 }]
-    ]},
-    "Fetch GitHub Signals": { "main": [[{ "node": "Strip GitHub Fields",    "type": "main", "index": 0 }]] },
-    "Strip GitHub Fields":  { "main": [[{ "node": "Fetch Jira Signals",     "type": "main", "index": 0 }]] },
-    "Fetch Jira Signals":   { "main": [[{ "node": "Assemble Context",       "type": "main", "index": 0 }]] },
-    "Assemble Context":     { "main": [[{ "node": "Build Ollama Request",   "type": "main", "index": 0 }]] },
-    "Build Ollama Request": { "main": [[{ "node": "Call Ollama",            "type": "main", "index": 0 }]] },
-    "Call Ollama":          { "main": [[{ "node": "Audit Response",         "type": "main", "index": 0 }]] },
-    "Audit Response":       { "main": [[{ "node": "Response Clean?",        "type": "main", "index": 0 }]] },
-    "Response Clean?":      { "main": [
-      [{ "node": "Post DM Reply",          "type": "main", "index": 0 }],
-      [{ "node": "Post Audit Fallback",    "type": "main", "index": 0 }]
-    ]}
+    "Discord Events": {
+      "main": [
+        [
+          {
+            "node": "Filter DM Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter DM Message": {
+      "main": [
+        [
+          {
+            "node": "Skip?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip?": {
+      "main": [
+        [
+          {
+            "node": "Skip — Not DM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Roster": {
+      "main": [
+        [
+          {
+            "node": "Verify Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Developer": {
+      "main": [
+        [
+          {
+            "node": "Developer Verified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Developer Verified?": {
+      "main": [
+        [
+          {
+            "node": "Skip — Not Developer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Detect Approval Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch GitHub Signals": {
+      "main": [
+        [
+          {
+            "node": "Strip GitHub Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip GitHub Fields": {
+      "main": [
+        [
+          {
+            "node": "Fetch Jira Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Jira Signals": {
+      "main": [
+        [
+          {
+            "node": "Assemble Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Context": {
+      "main": [
+        [
+          {
+            "node": "Build Ollama Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ollama Request": {
+      "main": [
+        [
+          {
+            "node": "Call Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama": {
+      "main": [
+        [
+          {
+            "node": "Audit Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Response": {
+      "main": [
+        [
+          {
+            "node": "Response Clean?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Clean?": {
+      "main": [
+        [
+          {
+            "node": "Post DM Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post Audit Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Approval Command": {
+      "main": [
+        [
+          {
+            "node": "Route Message Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Message Type": {
+      "approval_cmd": [
+        [
+          {
+            "node": "Fetch Pending Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "query": [
+        [
+          {
+            "node": "Fetch GitHub Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Pending Draft": {
+      "main": [
+        [
+          {
+            "node": "Draft Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Found?": {
+      "main": [
+        [
+          {
+            "node": "Process Decision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Pending Draft DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Decision": {
+      "main": [
+        [
+          {
+            "node": "Update Draft Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Draft Status": {
+      "main": [
+        [
+          {
+            "node": "If Update Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Approved?": {
+      "main": [
+        [
+          {
+            "node": "Call Delivery Executor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm Rejected DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Update Claimed?": {
+      "main": [
+        [
+          {
+            "node": "If Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already Processed DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Delivery Executor": {
+      "main": [
+        [
+          {
+            "node": "If Executor OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Executor OK?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Executor Failed DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": true,
-  "settings": { "executionOrder": "v1" },
-  "meta": { "instanceId": "pipemind" },
-  "tags": [{ "name": "developer-query" }, { "name": "p0" }, { "name": "f-17" }]
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "developer-query"
+    },
+    {
+      "name": "p0"
+    },
+    {
+      "name": "f-17"
+    }
+  ]
 }

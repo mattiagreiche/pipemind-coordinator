@@ -34,9 +34,10 @@ Mis à jour : 2026-06-27
 
 ### Variables n8n à setter après import (Settings → Variables)
 ```
-F08_WORKFLOW_ID  → ID de  "02 — F-08: Aggregation Boundary"
-F03_WORKFLOW_ID  → ID de  "01 — F-03: Approval Gate"
-F01_WORKFLOW_ID  → ID de  "04 — F-01: Client Progress Report"
+F08_WORKFLOW_ID              → ID de  "02 — F-08: Aggregation Boundary"
+F03_WORKFLOW_ID              → ID de  "01 — F-03: Approval Gate"
+F01_WORKFLOW_ID              → ID de  "04 — F-01: Client Progress Report"
+DELIVERY_EXECUTOR_WORKFLOW_ID → ID de  "01c — F-03: Delivery Executor"
 ```
 
 ### Discord Developer Portal
@@ -76,7 +77,8 @@ F01_WORKFLOW_ID  → ID de  "04 — F-01: Client Progress Report"
 - 01c étendu : Route time_entry → Dedup Clockify → Fetch Dev Clockify ID → Parse Time Entry (hours from context_json + edited_text override) → Write Clockify Entry → Log Clockify Delivered → Confirm Dev DM
 - Idempotent : dedup_key = `clockify_write:{draft_id}` dans delivered_actions
 - SC-05 : Clockify entries existantes aujourd'hui → info_dm, jamais d'interprétation comme blocage
-- **TODO connu** : Le DM response listener (gestionnaire des réponses "yes"/"edit Xh"/"no") n'est pas encore implémenté. La route doit être ajoutée à F-17 (workflow 07) pour détecter les commandes d'approbation dans les DM développeurs et appeler le delivery executor (01c) avec le draft_id.
+- DM response listener (**✅ intégré dans F-17 / workflow 07**) : "yes" → approve draft → delivery executor (01c) → Clockify write + confirm DM. "edit Xh" → approve avec edited_text. "no" → reject + DM confirmation.
+- Audité sécurité (listener) : CRIT-1 (rowCount race → If Update Claimed? + Already Processed DM), CRIT-2/MED-2 (isEdit bounds 0 < h ≤ 16), HIGH-2 (continueOnFail + Executor Failed DM), LOW-3 (Rejected DM via discord_channel_id) fixés
 
 ### Ordre recommandé P1
 ```
