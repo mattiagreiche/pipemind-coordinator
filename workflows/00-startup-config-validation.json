@@ -6,10 +6,18 @@
       "name": "Every 5 Minutes",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 100],
+      "position": [
+        50,
+        250
+      ],
       "parameters": {
         "rule": {
-          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
         }
       }
     },
@@ -18,9 +26,14 @@
       "name": "On Workflow Activated",
       "type": "n8n-nodes-base.n8nTrigger",
       "typeVersion": 1,
-      "position": [0, 400],
+      "position": [
+        50,
+        350
+      ],
       "parameters": {
-        "events": ["workflowActivated"]
+        "events": [
+          "workflowActivated"
+        ]
       }
     },
     {
@@ -28,7 +41,10 @@
       "name": "Read Roster File",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [280, 250],
+      "position": [
+        650,
+        200
+      ],
       "parameters": {
         "jsCode": "const fs = require('fs');\nlet stdout;\ntry {\n  stdout = fs.readFileSync('/config/roster.json', 'utf8');\n} catch (e) {\n  stdout = '{\"__error\":\"file_not_found\"}';\n}\nreturn [{ json: { stdout } }];"
       }
@@ -38,7 +54,10 @@
       "name": "Parse & Validate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [540, 250],
+      "position": [
+        540,
+        250
+      ],
       "parameters": {
         "jsCode": "const raw = $input.first().json.stdout;\n\nif (!raw || raw.trim() === '') {\n  return [{ json: { valid: false, error: 'roster.json is empty', entries: [], hash: '' } }];\n}\n\nif (raw.trim() === '{\"__error\":\"file_not_found\"}') {\n  return [{ json: { valid: false, error: 'roster.json not found at /config/roster.json', entries: [], hash: '' } }];\n}\n\nlet data;\ntry {\n  data = JSON.parse(raw);\n} catch (e) {\n  return [{ json: { valid: false, error: 'Invalid JSON: ' + e.message, entries: [], hash: '' } }];\n}\n\nconst errors = [];\n\nif (!data.team_lead || typeof data.team_lead !== 'object') {\n  errors.push('Missing \"team_lead\" object');\n} else {\n  if (!data.team_lead.name) errors.push('team_lead: missing name');\n  if (!data.team_lead.discord_id) errors.push('team_lead: missing discord_id');\n  if (!data.team_lead.clockify_user_id) errors.push('team_lead: missing clockify_user_id');\n}\n\nif (!Array.isArray(data.developers) || data.developers.length === 0) {\n  errors.push('developers: must be a non-empty array (at least 1 required)');\n} else {\n  data.developers.forEach((dev, i) => {\n    if (!dev.name) errors.push('developers[' + i + ']: missing name');\n    if (!dev.discord_id) errors.push('developers[' + i + ']: missing discord_id');\n    if (!dev.clockify_user_id) errors.push('developers[' + i + ']: missing clockify_user_id');\n  });\n}\n\nif (!data.client || typeof data.client !== 'object') {\n  errors.push('Missing \"client\" object');\n} else {\n  if (!data.client.name) errors.push('client: missing name');\n  if (!data.client.discord_id) errors.push('client: missing discord_id');\n  if (!data.client.discord_channel_id) errors.push('client: missing discord_channel_id');\n}\n\nif (errors.length > 0) {\n  return [{ json: { valid: false, error: errors.join(' | '), entries: [], hash: '' } }];\n}\n\nconst crypto = require('crypto');\nconst hash = crypto.createHash('sha256').update(raw).digest('hex');\n\nconst entries = [\n  {\n    discord_id: data.team_lead.discord_id,\n    name: data.team_lead.name,\n    role: 'team_lead',\n    clockify_user_id: data.team_lead.clockify_user_id,\n    discord_channel_id: null\n  },\n  ...data.developers.map(dev => ({\n    discord_id: dev.discord_id,\n    name: dev.name,\n    role: 'developer',\n    clockify_user_id: dev.clockify_user_id,\n    discord_channel_id: null\n  })),\n  {\n    discord_id: data.client.discord_id,\n    name: data.client.name,\n    role: 'client',\n    clockify_user_id: null,\n    discord_channel_id: data.client.discord_channel_id\n  }\n];\n\nreturn [{ json: { valid: true, entries, hash } }];"
       }
@@ -48,14 +67,20 @@
       "name": "Roster Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [800, 250],
+      "position": [
+        800,
+        250
+      ],
       "parameters": {
         "conditions": {
           "conditions": [
             {
               "leftValue": "={{ $json.valid }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "equals" }
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
             }
           ]
         }
@@ -66,7 +91,10 @@
       "name": "Split Entries",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1060, 100],
+      "position": [
+        1060,
+        100
+      ],
       "parameters": {
         "jsCode": "const { entries, hash } = $input.first().json;\nreturn entries.map(entry => ({ json: { ...entry, hash } }));"
       }
@@ -76,8 +104,16 @@
       "name": "Upsert Roster Entry",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1320, 100],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        1320,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.roster\n  (discord_id, name, role, clockify_user_id, discord_channel_id, source_hash, last_synced_at, active)\nVALUES ($1, $2, $3, $4, $5, $6, now(), true)\nON CONFLICT (discord_id) DO UPDATE SET\n  name               = EXCLUDED.name,\n  role               = EXCLUDED.role,\n  clockify_user_id   = EXCLUDED.clockify_user_id,\n  discord_channel_id = EXCLUDED.discord_channel_id,\n  source_hash        = EXCLUDED.source_hash,\n  last_synced_at     = now(),\n  active             = true,\n  updated_at         = now();",
@@ -91,8 +127,16 @@
       "name": "Deactivate Removed Members",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1580, 100],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        1580,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE pipemind.roster\nSET active = false, updated_at = now()\nWHERE source_hash != $1 AND active = true;",
@@ -106,8 +150,16 @@
       "name": "Set roster_valid = true",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1840, 100],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        1840,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.system_state (key, value)\nVALUES ('roster_valid', 'true')\nON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = now();"
@@ -118,8 +170,16 @@
       "name": "Set roster_valid = false",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1060, 420],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        1060,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.system_state (key, value)\nVALUES ('roster_valid', 'false')\nON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = now();"
@@ -130,31 +190,241 @@
       "name": "Alert TL — Config Error",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1320, 420],
-      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "position": [
+        1320,
+        420
+      ],
+      "credentials": {
+        "discordBotApi": {
+          "id": "pipemindDiscord",
+          "name": "Pipemind Discord Bot"
+        }
+      },
       "parameters": {
         "operation": "sendMessage",
         "channelId": "={{ $env.TEAM_LEAD_APPROVAL_CHANNEL_ID }}",
         "content": "={{ '🚨 **Pipemind — Config Error**\\n\\n`roster.json` is missing or invalid. All workflows are paused until this is fixed.\\n\\n**Error:** ' + String($('Parse & Validate').item.json.error ?? '').slice(0, 300) + '\\n\\n**Fix:** Update `/config/roster.json` on the host and wait for the next 5-minute check (or reactivate Workflow 00 manually).' }}"
       }
+    },
+    {
+      "id": "validate-env-vars",
+      "name": "Validate Env Vars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const required = [\n  'DRIVE_FOLDER_ID',\n  'CLIENT_EMAIL',\n  'EOD_TIME',\n  'REPORT_DAY_TIME',\n  'TL_CHANNEL_ID',\n  'CLIENT_CHANNEL_ID',\n  'DISCORD_BOT_TOKEN'\n];\n\nconst missing = required.filter(k => !$env[k] || String($env[k]).trim() === '');\n\nreturn [{ json: {\n  env_valid: missing.length === 0,\n  missing_vars: missing\n} }];"
+      }
+    },
+    {
+      "id": "env-vars-ok",
+      "name": "Env Vars OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        450,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.env_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "alert-tl-env-vars",
+      "name": "Alert TL — Missing Env Vars",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        650,
+        450
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] **Startup error** — missing required environment variables: `' + $('Validate Env Vars').item.json.missing_vars.join('`, `') + '`. The agent cannot operate until these are set.' }) }}"
+      }
     }
   ],
   "connections": {
-    "Every 5 Minutes":            { "main": [[{ "node": "Read Roster File",           "type": "main", "index": 0 }]] },
-    "On Workflow Activated":      { "main": [[{ "node": "Read Roster File",           "type": "main", "index": 0 }]] },
-    "Read Roster File":           { "main": [[{ "node": "Parse & Validate",           "type": "main", "index": 0 }]] },
-    "Parse & Validate":           { "main": [[{ "node": "Roster Valid?",              "type": "main", "index": 0 }]] },
-    "Roster Valid?":              { "main": [
-      [{ "node": "Split Entries",               "type": "main", "index": 0 }],
-      [{ "node": "Set roster_valid = false",    "type": "main", "index": 0 }]
-    ]},
-    "Split Entries":              { "main": [[{ "node": "Upsert Roster Entry",        "type": "main", "index": 0 }]] },
-    "Upsert Roster Entry":        { "main": [[{ "node": "Deactivate Removed Members", "type": "main", "index": 0 }]] },
-    "Deactivate Removed Members": { "main": [[{ "node": "Set roster_valid = true",    "type": "main", "index": 0 }]] },
-    "Set roster_valid = false":   { "main": [[{ "node": "Alert TL — Config Error",   "type": "main", "index": 0 }]] }
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Validate Env Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On Workflow Activated": {
+      "main": [
+        [
+          {
+            "node": "Validate Env Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Roster File": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate": {
+      "main": [
+        [
+          {
+            "node": "Roster Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roster Valid?": {
+      "main": [
+        [
+          {
+            "node": "Split Entries",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set roster_valid = false",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Entries": {
+      "main": [
+        [
+          {
+            "node": "Upsert Roster Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Roster Entry": {
+      "main": [
+        [
+          {
+            "node": "Deactivate Removed Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deactivate Removed Members": {
+      "main": [
+        [
+          {
+            "node": "Set roster_valid = true",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set roster_valid = false": {
+      "main": [
+        [
+          {
+            "node": "Alert TL — Config Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Env Vars": {
+      "main": [
+        [
+          {
+            "node": "Env Vars OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Env Vars OK?": {
+      "main": [
+        [
+          {
+            "node": "Read Roster File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert TL — Missing Env Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": true,
-  "settings": { "executionOrder": "v1" },
-  "meta": { "instanceId": "pipemind" },
-  "tags": [{ "name": "startup" }, { "name": "p0" }]
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "startup"
+    },
+    {
+      "name": "p0"
+    }
+  ]
 }
