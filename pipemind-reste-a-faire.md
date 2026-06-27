@@ -52,12 +52,11 @@ F01_WORKFLOW_ID  → ID de  "04 — F-01: Client Progress Report"
 - Workflow 08 : sous-workflow `memory-reader` — purpose-gated (`report` / `tl_internal` / `dev_self`)
 - Audité sécurité : HIGH-1 (SQL paramétrisé), HIGH-2 (roster guard), MED-1–4 fixés
 
-### F-04 — Standup Ingestion
+### ✅ F-04 — Standup Ingestion — FAIT
 
-- Surveiller Google Drive (dossier `DRIVE_FOLDER_ID`) pour de nouveaux transcripts
-- Parser, anonymiser, stocker dans Postgres
-- Nourrir F-01 et F-16 avec des signaux standup
-- **SC-14** : sanitiser le contenu du transcript avant tout passage en expression n8n
+- Google Drive trigger → LLM extract → standup_records + project_signals (via F-08)
+- SC-14 double-pass, SC-11, SC-03 post-LLM name scan, F-14.5 newer signal wins
+- Audité sécurité : CRIT-1 (F-08 rewritten text), CRIT-2, HIGH-1, HIGH-2, MED-1–2 fixés
 
 ### F-05 — Check-ins Développeurs
 
@@ -75,7 +74,7 @@ F01_WORKFLOW_ID  → ID de  "04 — F-01: Client Progress Report"
 
 ### Ordre recommandé P1
 ```
-✅ F-14 → F-04 → F-05 → F-07
+✅ F-14 → ✅ F-04 → F-05 → F-07
 ```
 
 ---
