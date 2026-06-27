@@ -4,14 +4,14 @@ Mis à jour : 2026-06-27
 
 ---
 
-## Fait — P0 complet
+## ✅ P0 + P1 — COMPLET
 
 ### Infrastructure & DB
 - [x] `docker-compose.yml`, `.env.example`, `config/roster.example.json`
 - [x] Migration `001-init-pipemind-schema.sql` — toutes les tables pipemind
 - [x] Workflow 00 — Startup / Config Validation (validé + durci)
 
-### Workflows P0 (tous audités par l'agent sécurité)
+### Workflows (tous audités par l'agent sécurité)
 - [x] **F-03** — Approval Gate (01, 01b, 01c + delivery executor 01c)
 - [x] **F-08** — Aggregation Boundary (sous-workflow réutilisable)
 - [x] **F-16** — Team Lead Interaction (listener Discord channel TL)
@@ -19,14 +19,10 @@ Mis à jour : 2026-06-27
 - [x] **F-02** — Client Q&A (Discord client channel → F-08 → F-03)
 - [x] **F-15** — Client Welcome (guildMemberAdd, atomic slot claim)
 - [x] **F-17** — Developer Queries (DM, pas de gate, audit SC-03 local)
-
-### Sécurité P0 — patterns universels en place
-- SC-11 : LLM endpoint private-only (+ IPv6 ULA, `::ffff:`, `0.0.0.0`) dans F-08 et F-17
-- SC-03 : zero attribution individuelle (normalize + hasWordBoundary + metric patterns) dans F-08 et F-17
-- safeQuestion : strip control chars + `<>|{}` dans F-02 et F-17
-- Approval gate : F-03 avant tout envoi client (F-01, F-02, F-15)
-- Idempotence : `ON CONFLICT DO NOTHING RETURNING` dans F-01 et F-15
-- Validate channel : assert `context_json.client_channel_id === $env.CLIENT_CHANNEL_ID` dans delivery executor
+- [x] **F-14** — Persistent Memory (migration 003 + memory-reader 08)
+- [x] **F-04** — Standup Ingestion (Drive trigger → LLM extract → F-08)
+- [x] **F-05** — Check-ins Développeurs (migration 004 + workflow 10)
+- [x] **F-07** — Time-Logging Helper (migration 005 + workflow 11 + 01c étendu + DM listener dans 07)
 
 ---
 
@@ -34,9 +30,9 @@ Mis à jour : 2026-06-27
 
 ### Variables n8n à setter après import (Settings → Variables)
 ```
-F08_WORKFLOW_ID              → ID de  "02 — F-08: Aggregation Boundary"
-F03_WORKFLOW_ID              → ID de  "01 — F-03: Approval Gate"
-F01_WORKFLOW_ID              → ID de  "04 — F-01: Client Progress Report"
+F08_WORKFLOW_ID               → ID de  "02 — F-08: Aggregation Boundary"
+F03_WORKFLOW_ID               → ID de  "01 — F-03: Approval Gate"
+F01_WORKFLOW_ID               → ID de  "04 — F-01: Client Progress Report"
 DELIVERY_EXECUTOR_WORKFLOW_ID → ID de  "01c — F-03: Delivery Executor"
 ```
 
@@ -45,55 +41,36 @@ DELIVERY_EXECUTOR_WORKFLOW_ID → ID de  "01c — F-03: Delivery Executor"
 
 ---
 
-## P1 — En cours
-
-### ✅ F-14 — Persistent Memory (Postgres) — FAIT
-
-- Migration 003 : tables `project_signals`, `standup_records`, `outreach_log`, `qa_history`
-- Workflow 08 : sous-workflow `memory-reader` — purpose-gated (`report` / `tl_internal` / `dev_self`)
-- Audité sécurité : HIGH-1 (SQL paramétrisé), HIGH-2 (roster guard), MED-1–4 fixés
-
-### ✅ F-04 — Standup Ingestion — FAIT
-
-- Google Drive trigger → LLM extract → standup_records + project_signals (via F-08)
-- SC-14 double-pass, SC-11, SC-03 post-LLM name scan, F-14.5 newer signal wins
-- Audité sécurité : CRIT-1 (F-08 rewritten text), CRIT-2, HIGH-1, HIGH-2, MED-1–2 fixés
-
-### ✅ F-05 — Check-ins Développeurs — FAIT
-
-- Migration 004 : colonnes `muted`, `muted_at` (trigger auto-stamp), `calendar_email` sur roster
-- Workflow 10 : Schedule → Roster guard → Fetch status (heard_from + already_contacted en 1 query) → Clockify → Strip PII → Calendar (freeBusy, max 50) → Compute → DM → Log
-- SC-06/SC-06a : Clockify primary + Calendar secondary, stricter wins
-- SC-18 : both unavailable → fail-safe + notify TL Discord channel
-- SC-12 : mute flag filtré en DB (WHERE muted = FALSE)
-- Audité sécurité : H-01 (nom exclu des logs execution), H-02 (Clockify strip userId-only), M-01 (continueOnFail sur DM nodes), M-02 (discord_id forwarded explicitement via Merge Send Result), M-03 (slice(0,50) freeBusy), M-04 (TL notification SC-18), L-02 (muted_at trigger), L-03 ([Pipemind] attribution) fixés
-
-### ✅ F-07 — Time-Logging Helper — FAIT
-
-- Migration 005 : `content_type` élargi à `'time_entry'` dans `approval_drafts`
-- Workflow 11 : Schedule EOD → Roster guard → Fetch status (already_offered) → Clockify time-off → Strip → Calendar → Compute Actions (SC-06a/SC-18) → Split → Fetch standup (LEFT JOIN) → Check Dev Clockify Today → Build Draft or Route → Switch (offer / info_dm)
-  - `offer` : Open DM → Create Approval Draft (RETURNING) → Send Draft DM → Merge Offer Result → If DM Sent? → Log Outreach
-  - `info_dm` : Open DM → Send Info DM → Log Outreach
-- 01c étendu : Route time_entry → Dedup Clockify → Fetch Dev Clockify ID → Parse Time Entry (hours from context_json + edited_text override) → Write Clockify Entry → Log Clockify Delivered → Confirm Dev DM
-- Idempotent : dedup_key = `clockify_write:{draft_id}` dans delivered_actions
-- SC-05 : Clockify entries existantes aujourd'hui → info_dm, jamais d'interprétation comme blocage
-- DM response listener (**✅ intégré dans F-17 / workflow 07**) : "yes" → approve draft → delivery executor (01c) → Clockify write + confirm DM. "edit Xh" → approve avec edited_text. "no" → reject + DM confirmation.
-- Audité sécurité (listener) : CRIT-1 (rowCount race → If Update Claimed? + Already Processed DM), CRIT-2/MED-2 (isEdit bounds 0 < h ≤ 16), HIGH-2 (continueOnFail + Executor Failed DM), LOW-3 (Rejected DM via discord_channel_id) fixés
-
-### Ordre recommandé P1
-```
-✅ F-14 → ✅ F-04 → ✅ F-05 → ✅ F-07
-```
-
----
-
 ## Beyond P1
 
 ### F-06 — Unblock Assistance
-
 - Détecter des patterns de blocage (ex. PR en review depuis 2 jours)
 - Proposer de l'aide au dev concerné (DM uniquement)
 - Jamais de remontée individuelle au TL
+
+---
+
+## Gaps identifiés par audit spec vs code
+
+Ces items sont dans les specs mais **pas implémentés**. À décider si on les garde, simplifie, ou retire des specs.
+
+| Priorité | Item | Détail |
+|----------|------|--------|
+| HIGH | F-02.2/F-02.3 — ask-a-teammate | Sous-flow entier manquant : Q&A va directement LLM → F-03 sans consulter un coéquipier |
+| MED | SC-12 — self-mute/unmute par DM | Colonne `muted` existe et est appliquée, mais aucun handler "mute"/"unmute" dans workflow 07 |
+| MED | SC-13 — commande explain | Zéro implémentation — ni dans workflow 03 (TL) ni dans workflow 07 (dev) |
+| MED | F-04.2 — transcription audio | Pas de node Whisper/STT local — un fichier mp3 dans Drive échouerait silencieusement |
+| LOW | F-15.4 — bot offline au join | Pas de récupération si le bot était offline quand le client a rejoint |
+
+Items **partiellement couverts** (fonctionnels mais pas exhaustifs selon spec) :
+
+| Item | Gap résiduel |
+|------|-------------|
+| F-01.8 — zéro signaux | Pas de branche structurelle "aucun signal" — LLM seul gère ça |
+| F-04.4 — transcript en double | Pas de check "déjà ingéré aujourd'hui" avant l'appel LLM |
+| F-04.5 — format non supporté | Pas de branche explicite "skip + notifier TL" |
+| F-17.2 — dev demande son propre travail | memory-reader (08) jamais appelé depuis workflow 07 |
+| SC-16 — validation startup | Workflow 00 valide le roster mais pas les env vars obligatoires |
 
 ---
 
@@ -102,6 +79,6 @@ DELIVERY_EXECUTOR_WORKFLOW_ID → ID de  "01c — F-03: Delivery Executor"
 | Priorité | Item | Détail |
 |----------|------|--------|
 | MED | HIGH-04 : Validation channel draft expiré | Dans 01b, `Notify Expired` envoie au `discord_channel_id` du draft — pas de validation que ce channel est encore le bon |
-| MED | F-17 : SC-03 local vs F-08 | F-17 audite SC-03 localement sans passer par F-08 — un seul point de vérité serait mieux. Refacto à planifier en P1. |
+| MED | F-17 : SC-03 local vs F-08 | F-17 audite SC-03 localement sans passer par F-08 — un seul point de vérité serait mieux. Refacto à planifier. |
 | LOW | Workflow 06 — Expiry Janitor | Cron qui passe les drafts `pending` expirés à `expired` dans la DB |
 | LOW | Docker network `internal: false` | Le réseau pipemind-internal est accessible depuis l'hôte — à durcir avant prod |
