@@ -58,12 +58,14 @@ F01_WORKFLOW_ID  → ID de  "04 — F-01: Client Progress Report"
 - SC-14 double-pass, SC-11, SC-03 post-LLM name scan, F-14.5 newer signal wins
 - Audité sécurité : CRIT-1 (F-08 rewritten text), CRIT-2, HIGH-1, HIGH-2, MED-1–2 fixés
 
-### F-05 — Check-ins Développeurs
+### ✅ F-05 — Check-ins Développeurs — FAIT
 
-- DM optionnel à chaque dev le matin (vérifier Clockify/Calendar avant)
-- **SC-06** : contacter seulement les gens schedulés ce jour-là
-- Le dev peut répondre ou ignorer — jamais de relance
-- Résultats agrégés (pas nominatifs) vers TL via F-03
+- Migration 004 : colonnes `muted`, `muted_at` (trigger auto-stamp), `calendar_email` sur roster
+- Workflow 10 : Schedule → Roster guard → Fetch status (heard_from + already_contacted en 1 query) → Clockify → Strip PII → Calendar (freeBusy, max 50) → Compute → DM → Log
+- SC-06/SC-06a : Clockify primary + Calendar secondary, stricter wins
+- SC-18 : both unavailable → fail-safe + notify TL Discord channel
+- SC-12 : mute flag filtré en DB (WHERE muted = FALSE)
+- Audité sécurité : H-01 (nom exclu des logs execution), H-02 (Clockify strip userId-only), M-01 (continueOnFail sur DM nodes), M-02 (discord_id forwarded explicitement via Merge Send Result), M-03 (slice(0,50) freeBusy), M-04 (TL notification SC-18), L-02 (muted_at trigger), L-03 ([Pipemind] attribution) fixés
 
 ### F-07 — Time-Logging Helper
 
