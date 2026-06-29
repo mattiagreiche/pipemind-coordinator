@@ -24,7 +24,7 @@ services:
     networks:
       - pipemind-internal
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/ || exit 1"]
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -78,9 +78,14 @@ services:
       TL_CHANNEL_ID: ${TL_CHANNEL_ID}
       CLIENT_CHANNEL_ID: ${CLIENT_CHANNEL_ID}
       GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_OWNER: ${GITHUB_OWNER}
+      GITHUB_REPO: ${GITHUB_REPO}
       JIRA_BASE_URL: ${JIRA_BASE_URL}
       JIRA_TOKEN: ${JIRA_TOKEN}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY}
+      JIRA_AUTH: ${JIRA_AUTH}
       CLOCKIFY_API_KEY: ${CLOCKIFY_API_KEY}
+      CLOCKIFY_WORKSPACE_ID: ${CLOCKIFY_WORKSPACE_ID}
       # Schedule config
       EOD_TIME: ${EOD_TIME}
       REPORT_DAY_TIME: ${REPORT_DAY_TIME}
