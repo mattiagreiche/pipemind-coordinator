@@ -86,6 +86,10 @@ services:
       # Ollama — local LLM endpoint (never an external URL — SC-11)
       OLLAMA_BASE_URL: http://ollama:11434
 
+      # P1 additions
+      CHECKIN_TIME: ${CHECKIN_TIME}
+      WHISPER_BASE_URL: http://whisper:9000
+
     volumes:
       - n8n_data:/home/node/.n8n
       - ./roster.yml:/data/roster.yml:ro
@@ -106,6 +110,24 @@ services:
       - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
+    networks:
+      - pipemind
+
+  # ---------------------------------------------------------------------------
+  # Whisper ASR — self-hosted audio transcription (SC-10)
+  # Required for standup audio file ingestion (F-04.2).
+  # SC-10: Must remain self-hosted; never replace with a cloud transcription API.
+  # ---------------------------------------------------------------------------
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    restart: unless-stopped
+    environment:
+      ASR_MODEL: base.en
+      ASR_ENGINE: openai_whisper
+    ports:
+      - "9000:9000"
+    volumes:
+      - whisper_models:/root/.cache/whisper
     networks:
       - pipemind
 
@@ -138,6 +160,8 @@ volumes:
   n8n_data:
     driver: local
   ollama_models:
+    driver: local
+  whisper_models:
     driver: local
 
 networks:

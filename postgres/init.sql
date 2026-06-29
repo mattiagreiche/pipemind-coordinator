@@ -74,3 +74,10 @@ CREATE TABLE IF NOT EXISTS mute_list (
     muted_by    TEXT        NOT NULL,
     muted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- P1 index addition
+-- Speeds up draft lookup by developer discord_id for time_entry approval polling
+-- ---------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS drafts_type_approver_status_idx
+  ON drafts (type, approver_discord_id, status);
