@@ -8,6 +8,9 @@
 # Use roster.example.yml as the template.
 roster.yml
 
+# Claude Code local settings — per-user, not shared
+.claude/settings.local.json
+
 # Docker volume data directories (if bind-mounted locally for debugging)
 postgres_data/
 n8n_data/
