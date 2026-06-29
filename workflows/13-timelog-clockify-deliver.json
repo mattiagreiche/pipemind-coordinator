@@ -1,0 +1,552 @@
+{
+  "name": "13 — Time-Logging Clockify Delivery (F-07 Delivery)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-wf13-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT status FROM drafts WHERE id = $1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.draft_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-check-draft-status",
+      "name": "Check Draft Already Executed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [320, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres — Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-wf13-already-executed",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "executed",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-if-already-executed",
+      "name": "IF Draft Already Executed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [540, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $node['Execute Workflow Trigger'].json.metadata.developer_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-open-dm-already-executed",
+      "name": "Get or Open DM Channel (Already Executed)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [760, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Time entry already logged. (Draft ID: {{ $node['Execute Workflow Trigger'].json.draft_id }})"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-post-already-executed-dm",
+      "name": "Post Already Executed Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [980, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/user/{{ $node['Execute Workflow Trigger'].json.metadata.clockify_id }}/time-entries?start={{ $node['Execute Workflow Trigger'].json.metadata.date }}T00:00:00Z&end={{ $node['Execute Workflow Trigger'].json.metadata.date }}T23:59:59Z&page=1&page-size=5",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Api-Key", "value": "={{ $env.CLOCKIFY_API_KEY }}" }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf13-clockify-idempotency-check",
+      "name": "Clockify Idempotency Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [760, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evaluate Clockify idempotency check result.\nconst result = $input.first().json;\nconst trigger = $node['Execute Workflow Trigger'].json;\n\nif (result.error) {\n  return [{ json: { ...trigger, idempotency_state: 'unavailable', error_message: JSON.stringify(result.error) } }];\n}\nif (Array.isArray(result) && result.length > 0) {\n  return [{ json: { ...trigger, idempotency_state: 'already_exists' } }];\n}\nreturn [{ json: { ...trigger, idempotency_state: 'clear' } }];"
+      },
+      "id": "node-wf13-evaluate-idempotency",
+      "name": "Evaluate Clockify Idempotency",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [980, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "id": "sw-wf13-already-exists",
+                    "leftValue": "={{ $json.idempotency_state }}",
+                    "rightValue": "already_exists",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "already_exists"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "id": "sw-wf13-unavailable",
+                    "leftValue": "={{ $json.idempotency_state }}",
+                    "rightValue": "unavailable",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "unavailable"
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "node-wf13-route-idempotency",
+      "name": "Route Idempotency State",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $json.metadata.developer_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-open-dm-exists",
+      "name": "Get or Open DM Channel (Entry Exists)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE drafts SET status = 'executed' WHERE id = $1 AND status = 'approved'",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.draft_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-mark-executed-exists",
+      "name": "Mark Draft Executed (Entry Already Exists)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1640, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres — Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $node['Get or Open DM Channel (Entry Exists)'].json.id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Time entry for {{ $json.metadata.date }} already exists in Clockify. Nothing was logged to avoid duplicates. (Draft ID: {{ $json.draft_id }})"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-post-exists-dm",
+      "name": "Post Entry Already Exists DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1860, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $json.metadata.developer_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-open-dm-unavailable",
+      "name": "Get or Open DM Channel (Clockify Unavailable)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 500],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $node['Get or Open DM Channel (Clockify Unavailable)'].json.id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Time-logging: Clockify is unavailable. Your approved entry has not been logged yet. The draft remains approved — I'll retry on the next run, or you can re-approve once Clockify is back. (Draft ID: {{ $json.draft_id }})"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-post-unavailable-dm",
+      "name": "Post Clockify Unavailable DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1640, 500],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/time-entries",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Api-Key", "value": "={{ $env.CLOCKIFY_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ description: $json.metadata.description, start: $json.metadata.start_iso, end: $json.metadata.end_iso, billable: true }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "node-wf13-write-clockify-entry",
+      "name": "Write Time Entry to Clockify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 700],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-wf13-write-failed",
+              "leftValue": "={{ $json.error !== undefined || $json.id === undefined }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-handle-write-failure",
+      "name": "Handle Clockify Write Failure",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1640, 700]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $node['Execute Workflow Trigger'].json.metadata.developer_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-open-dm-write-fail",
+      "name": "Get or Open DM Channel (Write Fail)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1860, 600],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Time-logging: failed to write time entry to Clockify. Your draft is still approved — please log manually or re-trigger. (Draft ID: {{ $node['Execute Workflow Trigger'].json.draft_id }})"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-post-write-fail-dm",
+      "name": "Post Write Failure DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2080, 600],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE drafts SET status = 'executed' WHERE id = $1 AND status = 'approved'",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$node['Execute Workflow Trigger'].json.draft_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-mark-executed",
+      "name": "Mark Draft Executed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1860, 800],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres — Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $node['Execute Workflow Trigger'].json.metadata.developer_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-open-dm-confirm",
+      "name": "Get or Open DM Channel (Confirm)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2080, 800],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Done! Your time entry for {{ $node['Execute Workflow Trigger'].json.metadata.date }} has been logged to Clockify. Description: '{{ $node['Execute Workflow Trigger'].json.metadata.description }}'. (Draft ID: {{ $node['Execute Workflow Trigger'].json.draft_id }})"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-post-confirmation-dm",
+      "name": "Post Delivery Confirmation DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2300, 800],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('action_log_timelog_deliver_' || $1, $2::jsonb)\nON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$node['Execute Workflow Trigger'].json.draft_id, JSON.stringify({ action: 'time_entry_logged', draft_id: $node['Execute Workflow Trigger'].json.draft_id, clockify_id: $node['Execute Workflow Trigger'].json.metadata.clockify_id, date: $node['Execute Workflow Trigger'].json.metadata.date, timestamp: new Date().toISOString() })] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf13-log-action",
+      "name": "Log Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2520, 800],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres — Coordination Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Check Draft Already Executed", "type": "main", "index": 0 }]]
+    },
+    "Check Draft Already Executed": {
+      "main": [[{ "node": "IF Draft Already Executed", "type": "main", "index": 0 }]]
+    },
+    "IF Draft Already Executed": {
+      "main": [
+        [{ "node": "Get or Open DM Channel (Already Executed)", "type": "main", "index": 0 }],
+        [{ "node": "Clockify Idempotency Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get or Open DM Channel (Already Executed)": {
+      "main": [[{ "node": "Post Already Executed Notice", "type": "main", "index": 0 }]]
+    },
+    "Clockify Idempotency Check": {
+      "main": [[{ "node": "Evaluate Clockify Idempotency", "type": "main", "index": 0 }]]
+    },
+    "Evaluate Clockify Idempotency": {
+      "main": [[{ "node": "Route Idempotency State", "type": "main", "index": 0 }]]
+    },
+    "Route Idempotency State": {
+      "main": [
+        [{ "node": "Get or Open DM Channel (Entry Exists)", "type": "main", "index": 0 }],
+        [{ "node": "Get or Open DM Channel (Clockify Unavailable)", "type": "main", "index": 0 }],
+        [{ "node": "Write Time Entry to Clockify", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get or Open DM Channel (Entry Exists)": {
+      "main": [[{ "node": "Mark Draft Executed (Entry Already Exists)", "type": "main", "index": 0 }]]
+    },
+    "Mark Draft Executed (Entry Already Exists)": {
+      "main": [[{ "node": "Post Entry Already Exists DM", "type": "main", "index": 0 }]]
+    },
+    "Get or Open DM Channel (Clockify Unavailable)": {
+      "main": [[{ "node": "Post Clockify Unavailable DM", "type": "main", "index": 0 }]]
+    },
+    "Write Time Entry to Clockify": {
+      "main": [[{ "node": "Handle Clockify Write Failure", "type": "main", "index": 0 }]]
+    },
+    "Handle Clockify Write Failure": {
+      "main": [
+        [{ "node": "Get or Open DM Channel (Write Fail)", "type": "main", "index": 0 }],
+        [{ "node": "Mark Draft Executed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get or Open DM Channel (Write Fail)": {
+      "main": [[{ "node": "Post Write Failure DM", "type": "main", "index": 0 }]]
+    },
+    "Mark Draft Executed": {
+      "main": [[{ "node": "Get or Open DM Channel (Confirm)", "type": "main", "index": 0 }]]
+    },
+    "Get or Open DM Channel (Confirm)": {
+      "main": [[{ "node": "Post Delivery Confirmation DM", "type": "main", "index": 0 }]]
+    },
+    "Post Delivery Confirmation DM": {
+      "main": [[{ "node": "Log Action", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "id": "WF_13"
+}
