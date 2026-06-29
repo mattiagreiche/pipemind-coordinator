@@ -1,6 +1,6 @@
 # Pipemind — Reste à faire
 Branche de travail : `dev/justin`
-Mis à jour : 2026-06-28
+Mis à jour : 2026-06-29
 
 ---
 
@@ -27,56 +27,91 @@ Mis à jour : 2026-06-28
 
 ---
 
-## Pour la prochaine session — Setup à compléter
+## Prochaine session — Checklist dans l'ordre
 
-### 1. Re-importer 7 workflows dans n8n (fix $vars → $env)
-Les workflows suivants ont été modifiés localement mais pas encore re-importés dans n8n.
-Pour chaque : ouvrir le workflow dans n8n → `...` → **Import from file** → sélectionner le fichier.
+### Étape 0 — Relancer la stack
 ```
-workflows/01-approval-gate.json
-workflows/03-tl-interaction.json
-workflows/04-client-report.json
-workflows/05-client-qa.json
-workflows/06-client-welcome.json
-workflows/07-developer-query.json
-workflows/09-standup-ingestion.json
+cd C:\Pipemind_project_agent\pipemind-coordinator
+docker compose up -d
 ```
+Attendre que les 3 containers soient healthy (postgres, ollama, n8n).
 
-### 2. Configurer roster.json
-Copier `config/roster.example.json` → `config/roster.json` et remplir avec les vrais membres :
-```json
-{
-  "team_lead": { "name": "...", "discord_id": "...", "clockify_user_id": "..." },
-  "developers": [{ "name": "...", "discord_id": "...", "clockify_user_id": "..." }],
-  "client": { "name": "...", "discord_id": "...", "discord_channel_id": "..." }
-}
-```
+---
 
-### 3. Puller le modèle Ollama
+### Étape 1 — Re-importer 7 workflows dans n8n
+Ces fichiers ont été modifiés (fix `$vars` → `$env`) mais pas encore re-importés dans n8n.
+
+**Pour chaque fichier :** aller dans n8n → ouvrir le workflow correspondant → `...` (3 points en haut à droite) → **Import from file** → sélectionner le fichier.
+
+| Fichier à importer | Workflow dans n8n |
+|--------------------|------------------|
+| `workflows/01-approval-gate.json` | Le workflow avec le tag `approval-gate` + `p0` (pas f06) |
+| `workflows/03-tl-interaction.json` | Le workflow avec le tag `tl-interaction` |
+| `workflows/04-client-report.json` | Le workflow avec le tag `client-report` |
+| `workflows/05-client-qa.json` | Le workflow avec le tag `client-qa` |
+| `workflows/06-client-welcome.json` | Le workflow avec le tag `client-welcome` |
+| `workflows/07-developer-query.json` | Le workflow avec le tag `developer-query` |
+| `workflows/09-standup-ingestion.json` | Le workflow avec le tag `standup-ingestion` |
+
+---
+
+### Étape 2 — Créer roster.json
+```
+copy config\roster.example.json config\roster.json
+```
+Puis ouvrir `config/roster.json` et remplir avec les vraies infos :
+- `team_lead` : ton nom, ton Discord ID (clic droit sur toi dans Discord → Copier l'ID), clockify_user_id peut rester vide
+- `developers` : idem pour chaque dev
+- `client` : nom du client, son Discord ID, et `discord_channel_id` = `1520992446635573509`
+
+Pour trouver un Discord ID : Discord → Paramètres → Avancé → activer le **Mode développeur**, puis clic droit sur un utilisateur → **Copier l'identifiant**.
+
+---
+
+### Étape 3 — Puller le modèle LLM
 ```
 docker exec pipemind-coordinator-ollama-1 ollama pull llama3.2
 ```
+Ça prend quelques minutes (~2 Go). Attendre que ça finisse avant d'activer les workflows.
 
-### 4. Activer les workflows dans n8n (dans cet ordre)
-1. **Workflow 00** — Startup Config Validation (active en premier — valide le roster)
-2. **Workflow 01b** — Approval Resolution (Discord trigger)
-3. **Workflow 01** — Approval Gate (sub-workflow)
-4. **Workflow 01c** — Delivery Executor (sub-workflow)
-5. **Workflow 02** — Aggregation Boundary (sub-workflow)
-6. Tous les autres
+---
 
-### 5. Discord Developer Portal
-- Activer le privileged intent **GUILD_MEMBERS** pour que F-15 reçoive les `guildMemberAdd` events
-- Vérifier que le bot est bien dans le serveur Discord
+### Étape 4 — Activer les workflows dans n8n (ordre important)
+Activer = toggle le switch "Inactive → Active" sur chaque workflow.
 
-### Variables n8n (déjà configurées dans .env)
+1. **My workflow** (tag `startup`) — Workflow 00, valide le roster au démarrage
+2. **My workflow 4** (tag `approval-gate` + `sub-workflow`) — 01-approval-gate
+3. **My workflow 3** (tag `approval-gate` + `f06`) — 01b-approval-resolution
+4. Le workflow `approval-gate` restant — 01c-delivery-executor
+5. **My workflow 5** (tag `aggregation-boundary`) — 02
+6. Tous les autres dans n'importe quel ordre
+
+Après activation du Workflow 00 : vérifier dans la DB que `roster_valid = true` :
 ```
-F08_WORKFLOW_ID               = cWGTd6h2UKJV5GoM
-F03_WORKFLOW_ID               = VATsRDYQMO5oYlP2
-F01_WORKFLOW_ID               = wmNFx8yYrC7VLdGI
-DELIVERY_EXECUTOR_WORKFLOW_ID = 1fGuoRwEUVwCGRpi
+docker exec pipemind-coordinator-postgres-1 psql -U n8n -d n8n -c "SELECT * FROM pipemind.system_state;"
 ```
-Note : Variables n8n est Enterprise-only — ces IDs sont passés via `$env` maintenant.
+
+---
+
+### Étape 5 — Discord Developer Portal (si pas encore fait)
+- Aller sur https://discord.com/developers/applications → ton app → **Bot**
+- Activer le privileged intent **SERVER MEMBERS INTENT** (GUILD_MEMBERS)
+- Sans ça, F-15 (accueil client) ne fonctionnera pas
+
+---
+
+### Référence rapide
+```
+n8n         → http://localhost:5678  (admin / pipemind2026)
+Postgres    → host: postgres, db: n8n, user: n8n
+Ollama      → http://ollama:11434 (interne Docker seulement)
+
+Workflow IDs (déjà dans .env) :
+  F08_WORKFLOW_ID               = cWGTd6h2UKJV5GoM
+  F03_WORKFLOW_ID               = VATsRDYQMO5oYlP2
+  F01_WORKFLOW_ID               = wmNFx8yYrC7VLdGI
+  DELIVERY_EXECUTOR_WORKFLOW_ID = 1fGuoRwEUVwCGRpi
+```
 
 ---
 
