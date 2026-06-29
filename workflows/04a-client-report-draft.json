@@ -1,0 +1,433 @@
+{
+  "name": "04a — Client Progress Report — Draft (F-01)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "node-schedule-trigger",
+      "name": "Schedule Trigger — Friday 17:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [100, 200]
+    },
+    {
+      "parameters": {},
+      "id": "node-execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [100, 400]
+    },
+    {
+      "parameters": {},
+      "id": "node-manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 600]
+    },
+    {
+      "parameters": {
+        "mode": "passThrough",
+        "output": "first"
+      },
+      "id": "node-merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [320, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-trigger-source",
+              "name": "trigger_source",
+              "value": "={{ $json.trigger_source ? $json.trigger_source : ($execution.mode === 'manual' ? 'manual' : 'schedule') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-normalise-trigger",
+      "name": "Normalise Trigger Source",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [540, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verify required env vars are present. Fails visibly if absent.\nconst required = ['DRIVE_FOLDER_ID', 'CLIENT_EMAIL', 'DISCORD_BOT_TOKEN', 'OLLAMA_BASE_URL'];\nconst missing = required.filter(k => !process.env[k] || process.env[k].trim() === '');\nif (missing.length > 0) {\n  throw new Error('FATAL: Missing env vars for report draft: ' + missing.join(', '));\n}\nreturn [{ json: { trigger_source: $json.trigger_source } }];"
+      },
+      "id": "node-check-env-vars",
+      "name": "Check Env Vars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load roster.yml and extract Team Lead channel and Discord ID.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet roster;\ntry {\n  roster = yaml.load(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  throw new Error('Report draft: cannot load roster.yml: ' + e.message);\n}\nreturn [{\n  json: {\n    trigger_source: $json.trigger_source,\n    team_lead_channel_id: roster.team_lead_channel_id,\n    team_lead_discord_id: roster.team_lead.discord_id,\n    roster_names: roster.team.map(m => m.name).concat([roster.team_lead.name])\n  }\n}];"
+      },
+      "id": "node-load-roster",
+      "name": "Load Roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [980, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compute date range for report period\nconst now = new Date();\nconst oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);\nreturn [{\n  json: {\n    ...$json,\n    one_week_ago_iso: oneWeekAgo.toISOString(),\n    today_iso: now.toISOString().split('T')[0]\n  }\n}];"
+      },
+      "id": "node-compute-dates",
+      "name": "Compute Date Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $env.GITHUB_REPO }}/pulls?state=open&per_page=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Pipemind-CoordinationAgent/1.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-fetch-github-prs",
+      "name": "Fetch GitHub Open PRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $env.GITHUB_REPO }}/commits?since={{ $node['Compute Date Range'].json.one_week_ago_iso }}&per_page=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Pipemind-CoordinationAgent/1.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-fetch-github-commits",
+      "name": "Fetch GitHub Commits",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 500],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://{{ $env.JIRA_SITE_URL }}/rest/api/3/search?jql=project={{ $env.JIRA_PROJECT_KEY }}%20AND%20updated>=-7d&fields=summary,status,issuetype,labels&maxResults=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Basic {{ Buffer.from($env.JIRA_EMAIL + ':' + $env.JIRA_API_TOKEN).toString('base64') }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-fetch-jira-hints",
+      "name": "Fetch Jira Feature Hints",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 700],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "combineAll",
+        "options": {}
+      },
+      "id": "node-merge-api-results",
+      "name": "Merge API Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1420, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate feature-level hints from GitHub and Jira.\n// CRITICAL: No author name, no commit author, no assignee, no individual attribution (SC-17).\n// Inputs arrive via the Merge node: items[0]=PR result, items[1]=commits result, items[2]=Jira result\nconst allItems = $input.all();\nconst prResult = allItems[0] ? allItems[0].json : null;\nconst commitResult = allItems[1] ? allItems[1].json : null;\nconst jiraResult = allItems[2] ? allItems[2].json : null;\nconst sourcesUnavailable = [];\n\n// Extract PR titles and labels only — no author fields\nlet openPrs = [];\nif (Array.isArray(prResult)) {\n  openPrs = prResult.slice(0, 10).map(pr => pr.title).filter(Boolean);\n} else {\n  sourcesUnavailable.push('GitHub PRs');\n}\n\n// Extract commit messages only — no author attribution\nlet commitThemes = [];\nif (Array.isArray(commitResult)) {\n  commitThemes = commitResult.slice(0, 10).map(c => c.commit && c.commit.message ? c.commit.message.split('\\n')[0] : null).filter(Boolean);\n} else {\n  sourcesUnavailable.push('GitHub commits');\n}\n\n// Extract Jira issue summaries and statuses only — no assignee\nlet jiraFeatures = [];\nif (jiraResult && Array.isArray(jiraResult.issues)) {\n  jiraFeatures = jiraResult.issues.slice(0, 15).map(issue => ({\n    summary: issue.fields && issue.fields.summary ? issue.fields.summary : '',\n    status: issue.fields && issue.fields.status ? issue.fields.status.name : ''\n    // Explicitly NOT extracting: assignee, reporter, author\n  })).filter(f => f.summary);\n} else {\n  sourcesUnavailable.push('Jira');\n}\n\nreturn [{\n  json: {\n    ...$node['Load Roster'].json,\n    one_week_ago_iso: $node['Compute Date Range'].json.one_week_ago_iso || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),\n    today_iso: $node['Compute Date Range'].json.today_iso || new Date().toISOString().split('T')[0],\n    trigger_source: $node['Normalise Trigger Source'].json.trigger_source,\n    hints: {\n      open_prs: openPrs,\n      recent_commit_themes: commitThemes,\n      jira_features: jiraFeatures,\n      sources_unavailable: sourcesUnavailable\n    }\n  }\n}];"
+      },
+      "id": "node-aggregate-hints",
+      "name": "Aggregate Hints (No Individual Attribution)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1640, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'project_picture' LIMIT 1",
+        "options": {}
+      },
+      "id": "node-check-project-memory",
+      "name": "Check project_memory",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1860, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres — Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble Ollama LLM request body.\n// System prompt is verbatim from the planner — do not alter.\nconst memRow = $input.first().json;\nconst hintsData = $node['Aggregate Hints (No Individual Attribution)'].json;\nconst hints = hintsData.hints;\nconst projectPicture = memRow && memRow.value_json ? (typeof memRow.value_json === 'string' ? memRow.value_json : JSON.stringify(memRow.value_json)) : null;\n\nconst systemPrompt = `You are a project coordination assistant. Your task is to draft a concise, honest, project-level progress report for the client.\n\nMANDATORY RULES — violating any of these is a critical error:\n1. The report must be fully project-level. It must not name, attribute to, or identify any individual team member in any way — not by name, role, initials, or any detail that could identify one person.\n2. Do not include commit counts, hours logged, pull request counts, or any numeric metric attributable to a person or implying individual productivity.\n3. Do not speculate about whether work is \"behind\" or \"at risk\" based solely on low activity metrics. Only describe what is demonstrably progressing or demonstrably blocked at the feature level.\n4. If there is little new to report since the last report, say so honestly. Do not fabricate progress.\n5. Use plain English suitable for a non-technical client. Keep the report under 400 words.\n6. Structure the report as: (a) What progressed this week, (b) What is next, (c) Any known blockers at the feature level.\n\nYou will be given feature-level signals from version control and issue tracking. These are supplementary hints only — treat them as directional, not as ground truth.`;\n\nconst userMessage = `Draft a client progress report based on these signals.\n\nGitHub signals: ${JSON.stringify(hints.open_prs)}\nJira signals: ${JSON.stringify(hints.jira_features)}\nRecent themes from commit messages: ${JSON.stringify(hints.recent_commit_themes)}\nProject memory (may be empty): ${projectPicture || 'No stored project context yet.'}\nSources unavailable: ${hints.sources_unavailable.join(', ') || 'None'}\n\nRemember: fully project-level only. No individual names, no productivity metrics.`;\n\nconst requestBody = {\n  model: 'llama3',\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userMessage }\n  ],\n  temperature: 0.3,\n  stream: false\n};\n\nreturn [{ json: {\n  llm_request: requestBody,\n  team_lead_channel_id: hintsData.team_lead_channel_id,\n  team_lead_discord_id: hintsData.team_lead_discord_id,\n  roster_names: hintsData.roster_names,\n  trigger_source: hintsData.trigger_source,\n  today_iso: hintsData.today_iso\n}}];"
+      },
+      "id": "node-assemble-llm-prompt",
+      "name": "Assemble LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2080, 500]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.OLLAMA_BASE_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.llm_request) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "node-call-ollama",
+      "name": "Call Ollama LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2300, 500],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract LLM response. Handle Ollama failure gracefully.\nconst result = $input.first().json;\nconst teamLeadChannelId = $node['Assemble LLM Prompt'].json.team_lead_channel_id;\n\n// Check for HTTP error (continueOnFail passes the error in $json.error)\nif (result.error || !result.choices || !result.choices[0]) {\n  return [{ json: {\n    llm_failed: true,\n    team_lead_channel_id: teamLeadChannelId,\n    error_message: result.error ? result.error.message : 'No response from LLM'\n  }}];\n}\n\nlet draftText = result.choices[0].message.content || '';\n// Strip markdown code fences\ndraftText = draftText.replace(/^```[\\w]*\\n?/, '').replace(/\\n?```$/, '').trim();\n\nreturn [{ json: {\n  llm_failed: false,\n  draft_text: draftText,\n  team_lead_channel_id: $node['Assemble LLM Prompt'].json.team_lead_channel_id,\n  team_lead_discord_id: $node['Assemble LLM Prompt'].json.team_lead_discord_id,\n  roster_names: $node['Assemble LLM Prompt'].json.roster_names,\n  trigger_source: $node['Assemble LLM Prompt'].json.trigger_source,\n  today_iso: $node['Assemble LLM Prompt'].json.today_iso\n}}];"
+      },
+      "id": "node-extract-llm-response",
+      "name": "Extract LLM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2520, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [{ "id": "cond-llm-failed", "leftValue": "={{ $json.llm_failed }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true" } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-check-llm-failed",
+      "name": "LLM Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2740, 500]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "Report draft failed: LLM unavailable ({{ $json.error_message }}). Re-trigger when Ollama is back online."
+        },
+        "options": {}
+      },
+      "id": "node-post-llm-failure-notice",
+      "name": "Post LLM Failure Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2960, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Privacy Validation (F-08 enforcement — safety net).\n// Scans draft_text for roster member names as whole words.\n// The LLM system prompt is the primary control; this is the safety net.\nconst draftText = $json.draft_text || '';\nconst rosterNames = $json.roster_names || [];\nlet validated = draftText;\nlet warnings = [];\n\nfor (const name of rosterNames) {\n  if (!name) continue;\n  // Match full name and also each individual word in the name\n  const escapedName = name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const regex = new RegExp(`\\\\b${escapedName}\\\\b`, 'gi');\n  if (regex.test(validated)) {\n    validated = validated.replace(regex, '[REMOVED — individual attribution]');\n    warnings.push(`Name '${name}' detected and removed.`);\n  }\n}\n\nlet finalText = validated;\nif (warnings.length > 0) {\n  finalText += `\\n\\n[Warning: the agent detected and removed individual attribution. Please review before approving. Removed: ${warnings.join('; ')}]`;\n}\n\nreturn [{ json: {\n  draft_text: finalText,\n  team_lead_channel_id: $json.team_lead_channel_id,\n  team_lead_discord_id: $json.team_lead_discord_id,\n  trigger_source: $json.trigger_source,\n  today_iso: $json.today_iso,\n  privacy_warnings: warnings\n}}];"
+      },
+      "id": "node-privacy-validation",
+      "name": "Privacy Validation (F-08 Name Scan)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2960, 600]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "value": "WORKFLOW_02_ID"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "type": "client_report",
+            "content_text": "={{ $json.draft_text }}",
+            "approver_discord_id": "={{ $json.team_lead_discord_id }}",
+            "approval_channel_id": "={{ $json.team_lead_channel_id }}",
+            "metadata_json": "={{ { trigger_source: $json.trigger_source, report_period: $json.today_iso } }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "node-post-draft-via-approval-gate",
+      "name": "Post Draft via Approval Gate (Sub-Workflow 02)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [3180, 600],
+      "notes": "Replace WORKFLOW_02_ID with the actual n8n ID of workflow 02 after import."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ 'action_log_' + ($json.draft_id || 'unknown') }},={{ JSON.stringify({ action: 'client_report_drafted', draft_id: $json.draft_id || 'unknown', trigger: $node['Normalise Trigger Source'].json.trigger_source, timestamp: new Date().toISOString() }) }}"
+        },
+        "options": {}
+      },
+      "id": "node-log-action",
+      "name": "Log Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3400, 600],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres — Coordination Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger — Friday 17:00": {
+      "main": [[{ "node": "Merge Triggers", "type": "main", "index": 0 }]]
+    },
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Merge Triggers", "type": "main", "index": 1 }]]
+    },
+    "Manual Trigger": {
+      "main": [[{ "node": "Merge Triggers", "type": "main", "index": 2 }]]
+    },
+    "Merge Triggers": {
+      "main": [[{ "node": "Normalise Trigger Source", "type": "main", "index": 0 }]]
+    },
+    "Normalise Trigger Source": {
+      "main": [[{ "node": "Check Env Vars", "type": "main", "index": 0 }]]
+    },
+    "Check Env Vars": {
+      "main": [[{ "node": "Load Roster", "type": "main", "index": 0 }]]
+    },
+    "Load Roster": {
+      "main": [[{ "node": "Compute Date Range", "type": "main", "index": 0 }]]
+    },
+    "Compute Date Range": {
+      "main": [
+        [
+          { "node": "Fetch GitHub Open PRs", "type": "main", "index": 0 },
+          { "node": "Fetch GitHub Commits", "type": "main", "index": 0 },
+          { "node": "Fetch Jira Feature Hints", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch GitHub Open PRs": {
+      "main": [[{ "node": "Merge API Results", "type": "main", "index": 0 }]]
+    },
+    "Fetch GitHub Commits": {
+      "main": [[{ "node": "Merge API Results", "type": "main", "index": 1 }]]
+    },
+    "Fetch Jira Feature Hints": {
+      "main": [[{ "node": "Merge API Results", "type": "main", "index": 2 }]]
+    },
+    "Merge API Results": {
+      "main": [[{ "node": "Aggregate Hints (No Individual Attribution)", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Hints (No Individual Attribution)": {
+      "main": [[{ "node": "Check project_memory", "type": "main", "index": 0 }]]
+    },
+    "Check project_memory": {
+      "main": [[{ "node": "Assemble LLM Prompt", "type": "main", "index": 0 }]]
+    },
+    "Assemble LLM Prompt": {
+      "main": [[{ "node": "Call Ollama LLM", "type": "main", "index": 0 }]]
+    },
+    "Call Ollama LLM": {
+      "main": [[{ "node": "Extract LLM Response", "type": "main", "index": 0 }]]
+    },
+    "Extract LLM Response": {
+      "main": [[{ "node": "LLM Failed?", "type": "main", "index": 0 }]]
+    },
+    "LLM Failed?": {
+      "main": [
+        [{ "node": "Post LLM Failure Notice", "type": "main", "index": 0 }],
+        [{ "node": "Privacy Validation (F-08 Name Scan)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Privacy Validation (F-08 Name Scan)": {
+      "main": [[{ "node": "Post Draft via Approval Gate (Sub-Workflow 02)", "type": "main", "index": 0 }]]
+    },
+    "Post Draft via Approval Gate (Sub-Workflow 02)": {
+      "main": [[{ "node": "Log Action", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

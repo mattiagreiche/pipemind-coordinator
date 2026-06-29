@@ -1,0 +1,818 @@
+{
+  "name": "04b \u2014 Client Report \u2014 Deliver Approved (F-01 Delivery)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT status FROM drafts WHERE id = $1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ $json.draft_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-check-already-executed",
+      "name": "Check Already Executed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-executed",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "executed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-is-already-executed",
+      "name": "Already Executed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        540,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load Team Lead channel for notifications\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nconst roster = yaml.load(fs.readFileSync(path, 'utf8'));\nreturn [{ json: { team_lead_channel_id: roster.team_lead_channel_id, already_executed: true } }];"
+      },
+      "id": "node-already-executed-notice-setup",
+      "name": "Already Executed \u2014 Setup Notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Report (Draft ID: `{{ $node['Execute Workflow Trigger'].json.draft_id }}`) has already been delivered. No duplicate action taken. (SC-21)"
+        },
+        "options": {}
+      },
+      "id": "node-post-already-delivered-notice",
+      "name": "Post Already Delivered Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://oauth2.googleapis.com/token",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "client_id": "={{ $env.GOOGLE_CLIENT_ID }}",
+          "client_secret": "={{ $env.GOOGLE_CLIENT_SECRET }}",
+          "refresh_token": "={{ $env.GOOGLE_REFRESH_TOKEN }}",
+          "grant_type": "refresh_token"
+        },
+        "options": {}
+      },
+      "id": "node-refresh-google-token",
+      "name": "Refresh Google Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare delivery context \u2014 compute today's date for file naming\nconst trigger = $node['Execute Workflow Trigger'].json;\nconst today = new Date().toISOString().split('T')[0];\nconst accessToken = $input.first().json.access_token;\nreturn [{\n  json: {\n    draft_id: trigger.draft_id,\n    content_text: trigger.content_text,\n    access_token: accessToken,\n    today_iso: today,\n    file_name: `Client Report ${today}.txt`,\n    email_subject: `Project Update \u2014 ${today}`\n  }\n}];"
+      },
+      "id": "node-prepare-delivery-context",
+      "name": "Prepare Delivery Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/drive/v3/files?q=name%3D%27{{ encodeURIComponent($json.file_name) }}%27%20and%20%27{{ $env.DRIVE_FOLDER_ID }}%27%20in%20parents&fields=files(id,name)",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-check-drive-idempotency",
+      "name": "Check Drive Idempotency",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-drive-exists",
+              "leftValue": "={{ ($json.files || []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-file-already-exists",
+      "name": "Drive File Already Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $node['Prepare Delivery Context'].json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "multipart/related; boundary=pipemind_boundary"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "multipart/related; boundary=pipemind_boundary",
+        "body": "=--pipemind_boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"name\": \"{{ $node['Prepare Delivery Context'].json.file_name }}\", \"parents\": [\"{{ $env.DRIVE_FOLDER_ID }}\"]}\r\n--pipemind_boundary\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n{{ $node['Prepare Delivery Context'].json.content_text }}\r\n--pipemind_boundary--",
+        "options": {}
+      },
+      "id": "node-save-to-drive",
+      "name": "Save to Google Drive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1640,
+        500
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-drive-failed",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-drive-save-failed",
+      "name": "Drive Save Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load Team Lead channel for error notification\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nconst roster = yaml.load(fs.readFileSync(path, 'utf8'));\nreturn [{ json: { team_lead_channel_id: roster.team_lead_channel_id, draft_id: $node['Execute Workflow Trigger'].json.draft_id } }];"
+      },
+      "id": "node-drive-error-setup",
+      "name": "Drive Error \u2014 Setup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Drive save failed for Draft `{{ $json.draft_id }}`. The draft remains in `approved` state \u2014 retry delivery when Drive is available. (F-01.7)"
+        },
+        "options": {}
+      },
+      "id": "node-post-drive-failure",
+      "name": "Post Drive Failure Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages?q=subject%3A%27Project%20Update%20\u2014%20{{ encodeURIComponent($node['Prepare Delivery Context'].json.today_iso) }}%27",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $node['Prepare Delivery Context'].json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-check-gmail-idempotency",
+      "name": "Check Gmail Idempotency",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        500
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-gmail-exists",
+              "leftValue": "={{ ($json.messages || []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-email-already-sent",
+      "name": "Email Already Sent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build RFC 2822 email encoded as base64 for Gmail API\nconst clientEmail = process.env.CLIENT_EMAIL;\nconst subject = $node['Prepare Delivery Context'].json.email_subject;\nconst body = $node['Prepare Delivery Context'].json.content_text;\nconst raw = `To: ${clientEmail}\\r\\nSubject: ${subject}\\r\\nContent-Type: text/plain; charset=UTF-8\\r\\n\\r\\n${body}`;\nconst encoded = Buffer.from(raw).toString('base64').replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\nreturn [{\n  json: {\n    raw: encoded,\n    access_token: $node['Prepare Delivery Context'].json.access_token,\n    draft_id: $node['Prepare Delivery Context'].json.draft_id,\n    today_iso: $node['Prepare Delivery Context'].json.today_iso\n  }\n}];"
+      },
+      "id": "node-build-email",
+      "name": "Build RFC 2822 Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "raw": "={{ $json.raw }}"
+        },
+        "options": {}
+      },
+      "id": "node-send-gmail",
+      "name": "Send Gmail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2740,
+        600
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-gmail-failed",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-gmail-send-failed",
+      "name": "Gmail Send Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2960,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load Team Lead channel for error notification\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nconst roster = yaml.load(fs.readFileSync(path, 'utf8'));\nreturn [{ json: { team_lead_channel_id: roster.team_lead_channel_id, draft_id: $node['Execute Workflow Trigger'].json.draft_id } }];"
+      },
+      "id": "node-gmail-error-setup",
+      "name": "Gmail Error \u2014 Setup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3180,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Drive saved, but Gmail send failed for Draft `{{ $json.draft_id }}`. Draft remains in `approved` state \u2014 retry when Gmail is available. (F-01.7)"
+        },
+        "options": {}
+      },
+      "id": "node-post-gmail-failure",
+      "name": "Post Gmail Failure Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3400,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE drafts SET status = 'executed' WHERE id = $1 AND status = 'approved'",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ $node['Execute Workflow Trigger'].json.draft_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-mark-draft-executed",
+      "name": "Mark Draft Executed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3180,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load Team Lead channel for confirmation\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nconst roster = yaml.load(fs.readFileSync(path, 'utf8'));\nreturn [{ json: { team_lead_channel_id: roster.team_lead_channel_id, draft_id: $node['Execute Workflow Trigger'].json.draft_id } }];"
+      },
+      "id": "node-delivery-confirmation-setup",
+      "name": "Delivery Confirmation \u2014 Setup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Report delivered. Saved to Drive and emailed to client. (Draft ID: `{{ $json.draft_id }}`)"
+        },
+        "options": {}
+      },
+      "id": "node-post-delivery-confirmation",
+      "name": "Post Delivery Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3620,
+        700
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Already Executed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Already Executed": {
+      "main": [
+        [
+          {
+            "node": "Already Executed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Executed?": {
+      "main": [
+        [
+          {
+            "node": "Already Executed \u2014 Setup Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refresh Google Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Executed \u2014 Setup Notice": {
+      "main": [
+        [
+          {
+            "node": "Post Already Delivered Notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh Google Token": {
+      "main": [
+        [
+          {
+            "node": "Prepare Delivery Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Delivery Context": {
+      "main": [
+        [
+          {
+            "node": "Check Drive Idempotency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Drive Idempotency": {
+      "main": [
+        [
+          {
+            "node": "Drive File Already Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive File Already Exists?": {
+      "main": [
+        [
+          {
+            "node": "Check Gmail Idempotency",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save to Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Drive Save Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive Save Failed?": {
+      "main": [
+        [
+          {
+            "node": "Drive Error \u2014 Setup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Gmail Idempotency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive Error \u2014 Setup": {
+      "main": [
+        [
+          {
+            "node": "Post Drive Failure Notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Gmail Idempotency": {
+      "main": [
+        [
+          {
+            "node": "Email Already Sent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Already Sent?": {
+      "main": [
+        [
+          {
+            "node": "Mark Draft Executed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build RFC 2822 Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build RFC 2822 Email": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Gmail": {
+      "main": [
+        [
+          {
+            "node": "Gmail Send Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Send Failed?": {
+      "main": [
+        [
+          {
+            "node": "Gmail Error \u2014 Setup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Draft Executed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Error \u2014 Setup": {
+      "main": [
+        [
+          {
+            "node": "Post Gmail Failure Notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Draft Executed": {
+      "main": [
+        [
+          {
+            "node": "Delivery Confirmation \u2014 Setup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delivery Confirmation \u2014 Setup": {
+      "main": [
+        [
+          {
+            "node": "Post Delivery Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}
