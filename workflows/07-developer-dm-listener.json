@@ -251,7 +251,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Classify message: !mute, !unmute, !explain, or Q&A.\nconst content = ($json.message_content || '').trim();\nconst lower = content.toLowerCase();\nlet type;\nif (lower === '!mute') {\n  type = 'mute';\n} else if (lower === '!unmute') {\n  type = 'unmute';\n} else if (lower.startsWith('!explain')) {\n  type = 'explain';\n} else {\n  type = 'qa';\n}\nreturn [{ json: { ...$json, message_type: type } }];"
+        "jsCode": "// Classify message: !mute, !unmute, !explain, !approve, !reject, !edit, or Q&A.\nconst content = ($json.message_content || '').trim();\nconst lower = content.toLowerCase();\nlet type;\nif (lower === '!mute') {\n  type = 'mute';\n} else if (lower === '!unmute') {\n  type = 'unmute';\n} else if (lower.startsWith('!explain')) {\n  type = 'explain';\n} else if (lower.startsWith('!approve ')) {\n  type = 'approve';\n} else if (lower.startsWith('!reject ')) {\n  type = 'reject';\n} else if (lower.startsWith('!edit ')) {\n  type = 'edit';\n} else {\n  type = 'qa';\n}\nreturn [{ json: { ...$json, message_type: type } }];"
       },
       "id": "node-detect-message-type",
       "name": "Detect Message Type",
@@ -334,6 +334,75 @@
               },
               "renameOutput": true,
               "outputKey": "explain"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "sw-approve",
+                    "leftValue": "={{ $json.message_type }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "approve"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "sw-reject",
+                    "leftValue": "={{ $json.message_type }}",
+                    "rightValue": "reject",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reject"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "sw-edit",
+                    "leftValue": "={{ $json.message_type }}",
+                    "rightValue": "edit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "edit"
             }
           ]
         },
@@ -643,6 +712,829 @@
           "name": "Postgres \u2014 Coordination Agent"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// !approve <draft_id> \u2014 parse draft ID from message.\nconst parts = $json.message_content.trim().split(/\\s+/);\nconst draftId = parts[1];\nif (!draftId || !/^[0-9a-f-]{36}$/.test(draftId)) {\n  return [{ json: { ...$json, parse_error: 'Invalid or missing draft ID. Usage: !approve <draft_id>' } }];\n}\nreturn [{ json: { ...$json, draft_id: draftId, parse_error: null } }];"
+      },
+      "id": "node-approve-parse",
+      "name": "Approve \u2014 Parse Draft ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-approve-parse-err",
+              "leftValue": "={{ $json.parse_error !== null }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-approve-if-parse-error",
+      "name": "Approve \u2014 IF Parse Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.parse_error }}"
+        },
+        "options": {}
+      },
+      "id": "node-approve-post-parse-error",
+      "name": "Approve \u2014 Post Parse Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        720
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, type, content_json, status, approver_discord_id, expires_at FROM drafts WHERE id = $1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.draft_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-approve-fetch-draft",
+      "name": "Approve \u2014 Fetch Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3840,
+        840
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate approve \u2014 check draft exists, pending, correct approver, not expired, type=time_entry.\nconst draft = $input.first().json;\nconst devId = $node['Approve \u2014 Parse Draft ID'].json.developer_discord_id;\nif (!draft || !draft.id) return [{ json: { ...$node['Approve \u2014 Parse Draft ID'].json, valid: false, reason: 'Draft not found.' } }];\nif (draft.status !== 'pending') return [{ json: { ...$node['Approve \u2014 Parse Draft ID'].json, valid: false, reason: 'Draft is not pending (status: ' + draft.status + ').' } }];\nif (draft.approver_discord_id !== devId) return [{ json: { ...$node['Approve \u2014 Parse Draft ID'].json, valid: false, reason: 'You are not the approver for this draft.' } }];\nif (new Date(draft.expires_at) < new Date()) return [{ json: { ...$node['Approve \u2014 Parse Draft ID'].json, valid: false, reason: 'Draft has expired.' } }];\nif (draft.type !== 'time_entry') return [{ json: { ...$node['Approve \u2014 Parse Draft ID'].json, valid: false, reason: 'This command only works for time entry drafts.' } }];\nconst contentJson = typeof draft.content_json === 'string' ? JSON.parse(draft.content_json) : draft.content_json;\nreturn [{ json: { ...$node['Approve \u2014 Parse Draft ID'].json, valid: true, draft_type: draft.type, content_json: contentJson } }];"
+      },
+      "id": "node-approve-validate",
+      "name": "Approve \u2014 Validate Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4060,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-approve-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-approve-if-invalid",
+      "name": "Approve \u2014 IF Not Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4280,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.reason }}"
+        },
+        "options": {}
+      },
+      "id": "node-approve-post-invalid",
+      "name": "Approve \u2014 Post Invalid Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4500,
+        780
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE drafts SET status = 'approved' WHERE id = $1 AND status = 'pending' RETURNING id, type, content_json",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.draft_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-approve-mark-approved",
+      "name": "Approve \u2014 Mark Approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4500,
+        900
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "value": "WORKFLOW_13_ID"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "draft_id": "={{ $node['Approve \u2014 Parse Draft ID'].json.draft_id }}",
+            "content_text": "={{ $node['Approve \u2014 Validate Draft'].json.content_json.text }}",
+            "metadata": "={{ $node['Approve \u2014 Validate Draft'].json.content_json.metadata }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "node-approve-call-wf13",
+      "name": "Approve \u2014 Call Workflow 13 Deliver",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        4720,
+        900
+      ],
+      "notes": "Replace WORKFLOW_13_ID with the actual n8n ID of workflow 13 after import."
+    },
+    {
+      "parameters": {
+        "jsCode": "// !reject <draft_id> \u2014 parse draft ID from message.\nconst parts = $json.message_content.trim().split(/\\s+/);\nconst draftId = parts[1];\nif (!draftId || !/^[0-9a-f-]{36}$/.test(draftId)) {\n  return [{ json: { ...$json, parse_error: 'Invalid or missing draft ID. Usage: !reject <draft_id>' } }];\n}\nreturn [{ json: { ...$json, draft_id: draftId, parse_error: null } }];"
+      },
+      "id": "node-reject-parse",
+      "name": "Reject \u2014 Parse Draft ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-reject-parse-err",
+              "leftValue": "={{ $json.parse_error !== null }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-reject-if-parse-error",
+      "name": "Reject \u2014 IF Parse Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.parse_error }}"
+        },
+        "options": {}
+      },
+      "id": "node-reject-post-parse-error",
+      "name": "Reject \u2014 Post Parse Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        980
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, type, content_json, status, approver_discord_id, expires_at FROM drafts WHERE id = $1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.draft_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-reject-fetch-draft",
+      "name": "Reject \u2014 Fetch Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3840,
+        1100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate reject \u2014 same checks as approve.\nconst draft = $input.first().json;\nconst devId = $node['Reject \u2014 Parse Draft ID'].json.developer_discord_id;\nif (!draft || !draft.id) return [{ json: { ...$node['Reject \u2014 Parse Draft ID'].json, valid: false, reason: 'Draft not found.' } }];\nif (draft.status !== 'pending') return [{ json: { ...$node['Reject \u2014 Parse Draft ID'].json, valid: false, reason: 'Draft is not pending (status: ' + draft.status + ').' } }];\nif (draft.approver_discord_id !== devId) return [{ json: { ...$node['Reject \u2014 Parse Draft ID'].json, valid: false, reason: 'You are not the approver for this draft.' } }];\nif (new Date(draft.expires_at) < new Date()) return [{ json: { ...$node['Reject \u2014 Parse Draft ID'].json, valid: false, reason: 'Draft has expired.' } }];\nif (draft.type !== 'time_entry') return [{ json: { ...$node['Reject \u2014 Parse Draft ID'].json, valid: false, reason: 'This command only works for time entry drafts.' } }];\nreturn [{ json: { ...$node['Reject \u2014 Parse Draft ID'].json, valid: true } }];"
+      },
+      "id": "node-reject-validate",
+      "name": "Reject \u2014 Validate Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4060,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-reject-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-reject-if-invalid",
+      "name": "Reject \u2014 IF Not Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4280,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.reason }}"
+        },
+        "options": {}
+      },
+      "id": "node-reject-post-invalid",
+      "name": "Reject \u2014 Post Invalid Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4500,
+        1040
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE drafts SET status = 'rejected' WHERE id = $1 AND status = 'pending'",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.draft_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-reject-mark-rejected",
+      "name": "Reject \u2014 Mark Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4500,
+        1160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Time entry draft {{ $json.draft_id }} rejected. Nothing has been logged to Clockify."
+        },
+        "options": {}
+      },
+      "id": "node-reject-post-confirmation",
+      "name": "Reject \u2014 Post Rejection Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4720,
+        1160
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// !edit <draft_id> <revised description> \u2014 parse from message.\nconst content = $json.message_content.trim();\nconst parts = content.split(/\\s+/);\nconst draftId = parts[1];\nconst revisedText = parts.slice(2).join(' ').trim();\nif (!draftId || !/^[0-9a-f-]{36}$/.test(draftId)) {\n  return [{ json: { ...$json, parse_error: 'Missing or invalid draft ID. Usage: !edit <draft_id> <new description>' } }];\n}\nif (!revisedText) {\n  return [{ json: { ...$json, parse_error: 'Missing revised description. Usage: !edit <draft_id> <new description>' } }];\n}\nreturn [{ json: { ...$json, draft_id: draftId, revised_description: revisedText, parse_error: null } }];"
+      },
+      "id": "node-edit-parse",
+      "name": "Edit \u2014 Parse Draft ID and Description",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-edit-parse-err",
+              "leftValue": "={{ $json.parse_error !== null }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-edit-if-parse-error",
+      "name": "Edit \u2014 IF Parse Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.parse_error }}"
+        },
+        "options": {}
+      },
+      "id": "node-edit-post-parse-error",
+      "name": "Edit \u2014 Post Parse Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        1240
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, type, content_json, status, approver_discord_id, expires_at FROM drafts WHERE id = $1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.draft_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-edit-fetch-draft",
+      "name": "Edit \u2014 Fetch Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3840,
+        1360
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate edit \u2014 same checks as approve.\nconst draft = $input.first().json;\nconst parseData = $node['Edit \u2014 Parse Draft ID and Description'].json;\nconst devId = parseData.developer_discord_id;\nif (!draft || !draft.id) return [{ json: { ...parseData, valid: false, reason: 'Draft not found.' } }];\nif (draft.status !== 'pending') return [{ json: { ...parseData, valid: false, reason: 'Draft is not pending (status: ' + draft.status + ').' } }];\nif (draft.approver_discord_id !== devId) return [{ json: { ...parseData, valid: false, reason: 'You are not the approver for this draft.' } }];\nif (new Date(draft.expires_at) < new Date()) return [{ json: { ...parseData, valid: false, reason: 'Draft has expired.' } }];\nif (draft.type !== 'time_entry') return [{ json: { ...parseData, valid: false, reason: 'This command only works for time entry drafts.' } }];\nconst contentJson = typeof draft.content_json === 'string' ? JSON.parse(draft.content_json) : draft.content_json;\nreturn [{ json: { ...parseData, valid: true, content_json: contentJson } }];"
+      },
+      "id": "node-edit-validate",
+      "name": "Edit \u2014 Validate Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4060,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-edit-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-edit-if-invalid",
+      "name": "Edit \u2014 IF Not Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4280,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.reason }}"
+        },
+        "options": {}
+      },
+      "id": "node-edit-post-invalid",
+      "name": "Edit \u2014 Post Invalid Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4500,
+        1300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE drafts\nSET content_json = jsonb_set(\n      jsonb_set(content_json, '{text}', $2::jsonb),\n      '{metadata,description}', $3::jsonb\n    ),\n    status = 'approved'\nWHERE id = $1 AND status = 'pending'\nRETURNING id, content_json",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.draft_id, JSON.stringify($json.revised_description), JSON.stringify($json.revised_description)] }}"
+        },
+        "options": {}
+      },
+      "id": "node-edit-update-and-approve",
+      "name": "Edit \u2014 Update Draft Content and Mark Approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4500,
+        1420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge updated content_json from RETURNING row with edit parse data for WF13 call.\nconst returning = $input.first().json;\nconst parseData = $node['Edit \u2014 Parse Draft ID and Description'].json;\nconst contentJson = typeof returning.content_json === 'string'\n  ? JSON.parse(returning.content_json)\n  : (returning.content_json || $node['Edit \u2014 Validate Draft'].json.content_json);\n// Ensure description in metadata is updated\nif (contentJson && contentJson.metadata) {\n  contentJson.metadata.description = parseData.revised_description;\n}\nreturn [{ json: { ...parseData, content_json: contentJson, draft_id: parseData.draft_id } }];"
+      },
+      "id": "node-edit-merge-returning",
+      "name": "Edit \u2014 Merge Returning Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4720,
+        1420
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "value": "WORKFLOW_13_ID"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "draft_id": "={{ $json.draft_id }}",
+            "content_text": "={{ $json.content_json.text }}",
+            "metadata": "={{ $json.content_json.metadata }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "node-edit-call-wf13",
+      "name": "Edit \u2014 Call Workflow 13 Deliver",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        4940,
+        1420
+      ],
+      "notes": "Replace WORKFLOW_13_ID with the actual n8n ID of workflow 13 after import."
+    },
+    {
+      "id": "wf07-approve-already-processed-if",
+      "name": "Approve \u2014 Already Processed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4720,
+        900
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-already-processed",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "wf07-approve-already-processed-post",
+      "name": "Approve \u2014 Post Already Processed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4940,
+        800
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"content\": \"Draft {{ $json.draft_id }} has already been processed. No action taken.\"}",
+        "options": {
+          "timeout": 10000
+        },
+        "continueOnFail": true
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567893",
+      "name": "Edit \u2014 Already Processed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        4700,
+        1420
+      ],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.id }}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567894",
+      "name": "Edit \u2014 Post Already Processed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "continueOnFail": true,
+      "position": [
+        4900,
+        1300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "body": "={\"content\": \"This draft has already been processed or no longer exists.\"}"
+      }
     }
   ],
   "connections": {
@@ -826,6 +1718,27 @@
         ],
         [
           {
+            "node": "Approve \u2014 Parse Draft ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject \u2014 Parse Draft ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit \u2014 Parse Draft ID and Description",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Q&A Handler \u2014 Build LLM Prompt",
             "type": "main",
             "index": 0
@@ -926,6 +1839,293 @@
         [
           {
             "node": "Q&A Handler \u2014 Log Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve \u2014 Parse Draft ID": {
+      "main": [
+        [
+          {
+            "node": "Approve \u2014 IF Parse Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve \u2014 IF Parse Error": {
+      "main": [
+        [
+          {
+            "node": "Approve \u2014 Post Parse Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Approve \u2014 Fetch Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve \u2014 Fetch Draft": {
+      "main": [
+        [
+          {
+            "node": "Approve \u2014 Validate Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve \u2014 Validate Draft": {
+      "main": [
+        [
+          {
+            "node": "Approve \u2014 IF Not Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve \u2014 IF Not Valid": {
+      "main": [
+        [
+          {
+            "node": "Approve \u2014 Post Invalid Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Approve \u2014 Mark Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve \u2014 Mark Approved": {
+      "main": [
+        [
+          {
+            "node": "Approve \u2014 Already Processed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject \u2014 Parse Draft ID": {
+      "main": [
+        [
+          {
+            "node": "Reject \u2014 IF Parse Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject \u2014 IF Parse Error": {
+      "main": [
+        [
+          {
+            "node": "Reject \u2014 Post Parse Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject \u2014 Fetch Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject \u2014 Fetch Draft": {
+      "main": [
+        [
+          {
+            "node": "Reject \u2014 Validate Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject \u2014 Validate Draft": {
+      "main": [
+        [
+          {
+            "node": "Reject \u2014 IF Not Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject \u2014 IF Not Valid": {
+      "main": [
+        [
+          {
+            "node": "Reject \u2014 Post Invalid Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject \u2014 Mark Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject \u2014 Mark Rejected": {
+      "main": [
+        [
+          {
+            "node": "Reject \u2014 Post Rejection Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit \u2014 Parse Draft ID and Description": {
+      "main": [
+        [
+          {
+            "node": "Edit \u2014 IF Parse Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit \u2014 IF Parse Error": {
+      "main": [
+        [
+          {
+            "node": "Edit \u2014 Post Parse Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit \u2014 Fetch Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit \u2014 Fetch Draft": {
+      "main": [
+        [
+          {
+            "node": "Edit \u2014 Validate Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit \u2014 Validate Draft": {
+      "main": [
+        [
+          {
+            "node": "Edit \u2014 IF Not Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit \u2014 IF Not Valid": {
+      "main": [
+        [
+          {
+            "node": "Edit \u2014 Post Invalid Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit \u2014 Update Draft Content and Mark Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit \u2014 Update Draft Content and Mark Approved": {
+      "main": [
+        [
+          {
+            "node": "Edit \u2014 Already Processed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit \u2014 Merge Returning Data": {
+      "main": [
+        [
+          {
+            "node": "Edit \u2014 Call Workflow 13 Deliver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve \u2014 Already Processed?": {
+      "main": [
+        [
+          {
+            "node": "Approve \u2014 Post Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Approve \u2014 Call Workflow 13 Deliver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit \u2014 Already Processed?": {
+      "main": [
+        [
+          {
+            "node": "Edit \u2014 Post Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit \u2014 Merge Returning Data",
             "type": "main",
             "index": 0
           }
