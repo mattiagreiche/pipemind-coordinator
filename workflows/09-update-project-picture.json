@@ -1,0 +1,292 @@
+{
+  "name": "09 \u2014 Update Project Picture Sub-Workflow (F-14)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-wf09-trigger",
+      "name": "Sub-workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'project_picture' LIMIT 1",
+        "options": {}
+      },
+      "id": "node-wf09-load-picture",
+      "name": "Load Existing Project Picture",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble Ollama merge request body.\n// System prompt is verbatim from the planner \u2014 do not alter.\nconst input = $('Sub-workflow Input').first().json;\nconst pictureRow = $input.first().json;\n\nconst existing = pictureRow && pictureRow.value_json\n  ? (typeof pictureRow.value_json === 'string' ? pictureRow.value_json : JSON.stringify(pictureRow.value_json))\n  : 'No existing picture. This is the first ingestion.';\n\nconst standupDate = input.standup_date || new Date().toISOString().slice(0, 10);\nconst parsedUpdates = input.parsed_updates || [];\nconst unattributedNotes = input.unattributed_notes || [];\n\nconst systemPrompt = `You are a project coordination assistant maintaining a project picture. Your task is to merge a new standup summary into the existing project picture.\n\nMANDATORY RULES \u2014 violating any is a critical error:\n1. The project picture must contain ONLY project-level information. No individual names, roles, initials, or any detail that could identify a specific person may appear anywhere in the output.\n2. Do not include commit counts, hours logged, or any numeric metric attributable to an individual.\n3. The newer standup signal always takes precedence over older stored data for the same feature (F-14.5). Update accordingly.\n4. If the existing picture has features not mentioned in the new standup, preserve them but do not mark them as stale unless the standup explicitly says a feature is complete.\n5. Do not fabricate progress or blockers. If a feature's status is unclear from the new data, set its status to \"unknown\".\n6. Retain the bootstrap_note if standup_data_available was false \u2014 the new ingestion sets standup_data_available to true and clears bootstrap_note.\n7. Output ONLY valid JSON matching this schema exactly \u2014 no prose, no markdown fences, no commentary outside the JSON:\n{\n  \"last_updated\": \"<ISO 8601 timestamp \u2014 use the standup_date provided>\",\n  \"data_sources\": [\"<list of strings identifying sources>\"],\n  \"features\": [\n    {\n      \"name\": \"<feature name>\",\n      \"status\": \"<in_progress|blocked|completed|unknown>\",\n      \"recent_progress\": \"<one sentence, project-level>\",\n      \"blockers\": \"<one sentence or null>\",\n      \"last_signal_date\": \"<YYYY-MM-DD>\"\n    }\n  ],\n  \"open_blockers\": [\"<project-level blocker string>\"],\n  \"standup_data_available\": true,\n  \"bootstrap_note\": null\n}`;\n\nconst userMessage = `Existing project picture: ${existing}\\n\\nNew standup data (date: ${standupDate}): ${JSON.stringify(parsedUpdates)}\\n\\nUnattributed notes from standup: ${JSON.stringify(unattributedNotes)}\\n\\nProduce the updated project picture JSON.`;\n\nconst requestBody = {\n  model: 'llama3',\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userMessage }\n  ],\n  temperature: 0.1,\n  stream: false\n};\n\nreturn [{ json: { llm_request: requestBody, standup_date: standupDate } }];"
+      },
+      "id": "node-wf09-assemble-prompt",
+      "name": "Assemble LLM Merge Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.OLLAMA_BASE_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.llm_request) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "node-wf09-call-ollama",
+      "name": "Call Ollama \u2014 Merge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nif (response.error || !response.choices) {\n  return [{ json: { success: false, reason: 'LLM unavailable: ' + JSON.stringify(response.error) } }];\n}\nlet raw = response.choices[0].message.content.trim();\n// Strip any accidental markdown fences\nraw = raw.replace(/^```json\\s*/i, '').replace(/\\s*```$/, '');\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  return [{ json: { success: false, reason: 'LLM output not valid JSON: ' + e.message } }];\n}\n// Minimal schema validation\nif (!parsed.features || !Array.isArray(parsed.features)) {\n  return [{ json: { success: false, reason: 'LLM output missing features array' } }];\n}\nreturn [{ json: { success: true, picture: parsed } }];"
+      },
+      "id": "node-wf09-parse-llm",
+      "name": "Parse and Validate LLM Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guard: if LLM failed, pass through without scanning\nif (!$json.success || !$json.picture) return [{ json: $json }];\n\nconst rosterNames = $('Sub-workflow Input').first().json.roster_names || [];\nlet pictureStr = JSON.stringify($json.picture);\nlet warningAdded = false;\nfor (const name of rosterNames) {\n  const re = new RegExp('\\\\b' + name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\\\b', 'gi');\n  if (re.test(pictureStr)) {\n    pictureStr = pictureStr.replace(re, '[REMOVED]');\n    warningAdded = true;\n  }\n}\nconst finalPicture = JSON.parse(pictureStr);\nreturn [{ json: { success: $json.success, picture: finalPicture, privacy_warning: warningAdded } }];"
+      },
+      "id": "node-wf09-privacy-scan",
+      "name": "Privacy Validation on Picture",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf09-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf09-route-success",
+      "name": "Route: Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('project_picture', $1::jsonb)\nON CONFLICT (key) DO UPDATE\n  SET value_json = EXCLUDED.value_json,\n      updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ JSON.stringify($json.picture) }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf09-upsert-picture",
+      "name": "Upsert Project Picture",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1640,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { success: true } }];"
+      },
+      "id": "node-wf09-return-success",
+      "name": "Return Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { success: false, reason: $json.reason || 'Unknown error' } }];"
+      },
+      "id": "node-wf09-return-error",
+      "name": "Return Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Sub-workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Load Existing Project Picture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Existing Project Picture": {
+      "main": [
+        [
+          {
+            "node": "Assemble LLM Merge Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble LLM Merge Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Ollama \u2014 Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama \u2014 Merge": {
+      "main": [
+        [
+          {
+            "node": "Parse and Validate LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Validate LLM Output": {
+      "main": [
+        [
+          {
+            "node": "Privacy Validation on Picture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Privacy Validation on Picture": {
+      "main": [
+        [
+          {
+            "node": "Route: Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route: Success?": {
+      "main": [
+        [
+          {
+            "node": "Upsert Project Picture",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Project Picture": {
+      "main": [
+        [
+          {
+            "node": "Return Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "id": "WF_09"
+}
