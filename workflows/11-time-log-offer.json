@@ -635,6 +635,30 @@
           "queryParams": "={{ JSON.stringify([$('Build Draft or Route').item.json.discord_id]) }}"
         }
       }
+    },
+    {
+      "id": "save-message-id",
+      "name": "Save Message ID to Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4500,
+        300
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "postgres": {
+          "id": "pipemindPostgres",
+          "name": "Pipemind Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.approval_drafts SET discord_message_id = $1 WHERE draft_id = $2::uuid;",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$json.id, $('Create Approval Draft').item.json.draft_id]) }}"
+        }
+      }
     }
   ],
   "connections": {
@@ -893,7 +917,17 @@
         ]
       ]
     },
-    "Send Draft DM": {},
+    "Send Draft DM": {
+      "main": [
+        [
+          {
+            "node": "Save Message ID to Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Log Outreach (Offer)": {
       "main": [
         [

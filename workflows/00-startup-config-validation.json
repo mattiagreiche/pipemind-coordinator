@@ -404,6 +404,11 @@
         ],
         [
           {
+            "node": "Set roster_valid = false",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Alert TL — Missing Env Vars",
             "type": "main",
             "index": 0
