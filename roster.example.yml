@@ -1,0 +1,46 @@
+# =============================================================================
+# Pipemind Coordination Agent — Roster Example
+# =============================================================================
+# RULES (SC-19):
+#   - The real roster file must be named roster.yml and must NOT be committed.
+#     roster.yml is listed in .gitignore.
+#   - Copy this file to roster.yml and fill in real values before starting the
+#     stack. The agent fails visibly on startup if roster.yml is absent.
+#   - Discord IDs are the numeric snowflake IDs (right-click user → Copy ID
+#     in Discord Developer Mode).
+#   - Clockify IDs are found in the Clockify workspace member settings.
+#   - Add or remove members by editing roster.yml; restart n8n to reload.
+#   - active: false means the agent will not contact this person proactively
+#     and will not include them in any scheduling checks.
+# =============================================================================
+
+team:
+  - name: "Alex Johnson"
+    discord_id: "123456789012345678"
+    clockify_id: "abc123def456"
+    google_calendar_id: "alex.johnson@example.com"
+    active: true
+
+  - name: "Sam Rivera"
+    discord_id: "234567890123456789"
+    clockify_id: "def456ghi789"
+    google_calendar_id: "sam.rivera@example.com"
+    active: true
+
+  - name: "Jordan Lee"
+    discord_id: "345678901234567890"
+    clockify_id: "ghi789jkl012"
+    google_calendar_id: "jordan.lee@example.com"
+    active: false   # On leave — agent will not contact proactively (SC-06)
+
+team_lead:
+  discord_id: "456789012345678901"
+  name: "Taylor Kim"
+  google_calendar_id: "taylor.kim@example.com"
+
+client:
+  discord_id: "REPLACE_WITH_CLIENT_DISCORD_ID"
+  name: "Client Name"
+
+client_channel_id: "567890123456789012"   # Discord channel ID for client-facing messages
+team_lead_channel_id: "678901234567890123" # Discord channel ID for Team Lead approval queue
