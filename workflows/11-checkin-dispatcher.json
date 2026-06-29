@@ -1,0 +1,1051 @@
+{
+  "name": "11 \u2014 Check-In Dispatcher (F-05)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 13 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-wf11-cron",
+      "name": "Cron Trigger \u2014 Daily Check-In",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load roster \u2014 extract active team members with all schedule fields.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet roster;\ntry {\n  roster = yaml.load(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  throw new Error('Check-In Dispatcher: cannot load roster.yml: ' + e.message);\n}\nconst activeTeam = (roster.team || []).filter(m => m.active !== false);\nreturn [{\n  json: {\n    team: activeTeam,\n    team_lead_channel_id: roster.team_lead_channel_id\n  }\n}];"
+      },
+      "id": "node-wf11-load-roster",
+      "name": "Load Roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verify required env vars. Warn (non-fatal) if CHECKIN_TIME absent.\nconst required = ['DISCORD_BOT_TOKEN', 'CLOCKIFY_API_KEY', 'CLOCKIFY_WORKSPACE_ID', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN'];\nconst missing = required.filter(k => !process.env[k] || process.env[k].trim() === '');\nif (missing.length > 0) {\n  throw new Error('FATAL: Check-In Dispatcher missing required env vars: ' + missing.join(', '));\n}\nif (!process.env.CHECKIN_TIME || process.env.CHECKIN_TIME.trim() === '') {\n  console.warn('WARN: CHECKIN_TIME not set \u2014 defaulting to 13:00 UTC for check-in cron.');\n}\nreturn [{ json: $json }];"
+      },
+      "id": "node-wf11-check-env",
+      "name": "Check Env Vars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://oauth2.googleapis.com/token",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "client_id": "={{ $env.GOOGLE_CLIENT_ID }}",
+          "client_secret": "={{ $env.GOOGLE_CLIENT_SECRET }}",
+          "refresh_token": "={{ $env.GOOGLE_REFRESH_TOKEN }}",
+          "grant_type": "refresh_token"
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf11-refresh-token",
+      "name": "Refresh Google Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'standup_heard_' || to_char(now(), 'YYYY-MM-DD') LIMIT 1",
+        "options": {}
+      },
+      "id": "node-wf11-read-heard",
+      "name": "Read Today's Standup-Heard",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        980,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Expand roster to individual items; attach heard_ids and access_token.\nconst rosterData = $node['Load Roster'].json;\nconst tokenResult = $node['Refresh Google Token'].json;\nconst heardRow = $node['Read Today\\'s Standup-Heard'].json;\n\nconst accessToken = (tokenResult && tokenResult.access_token) ? tokenResult.access_token : null;\nconst heardIds = (heardRow && heardRow.value_json)\n  ? (Array.isArray(heardRow.value_json) ? heardRow.value_json : [])\n  : [];\n\nreturn rosterData.team.map(m => ({\n  json: {\n    ...m,\n    team_lead_channel_id: rosterData.team_lead_channel_id,\n    heard_ids: heardIds,\n    access_token: accessToken,\n    today: new Date().toISOString().slice(0, 10)\n  }\n}));"
+      },
+      "id": "node-wf11-expand-roster",
+      "name": "Expand Roster to Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-wf11-for-each-dev",
+      "name": "For Each Developer",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if developer was already heard from in today's standup.\nconst heard = $json.heard_ids || [];\nconst discordId = $json.discord_id;\nconst today = $json.today;\nreturn [{ json: { ...$json, already_heard: heard.includes(discordId), today } }];"
+      },
+      "id": "node-wf11-check-heard",
+      "name": "Check Already Heard From",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf11-heard",
+              "leftValue": "={{ $json.already_heard }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-if-heard",
+      "name": "IF Already Heard From",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'checkin_sent_' || $1 || '_' || $2 LIMIT 1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.today, $json.discord_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-check-idempotency",
+      "name": "Check Idempotency \u2014 Already Sent Today",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2080,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf11-already-sent",
+              "leftValue": "={{ $json.value_json !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-if-already-sent",
+      "name": "IF Already Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT discord_id FROM mute_list WHERE discord_id = $1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.discord_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-check-mute",
+      "name": "Check Mute List",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2520,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf11-muted",
+              "leftValue": "={{ $json.discord_id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-if-muted",
+      "name": "IF Muted",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2740,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/time-off/requests?status=APPROVED&start={{ $json.today }}T00:00:00Z&end={{ $json.today }}T23:59:59Z",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf11-check-clockify",
+      "name": "Check Clockify Schedule",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2960,
+        600
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evaluate Clockify time-off result.\nconst result = $input.first().json;\nconst clockifyId = $json.clockify_id;\nlet clockify_available = true;\nlet on_leave_clockify = false;\n\nif (result.error || !Array.isArray(result)) {\n  clockify_available = false;\n} else {\n  on_leave_clockify = result.some(req => req.userId === clockifyId && req.status === 'APPROVED');\n}\nreturn [{ json: { ...$json, clockify_available, on_leave_clockify } }];"
+      },
+      "id": "node-wf11-parse-clockify",
+      "name": "Parse Clockify Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3180,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ timeMin: $json.today + 'T00:00:00Z', timeMax: $json.today + 'T23:59:59Z', items: [{ id: $json.google_calendar_id }] }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf11-check-calendar",
+      "name": "Check Google Calendar OOO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3400,
+        600
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evaluate schedule status \u2014 stricter source wins (SC-06a).\nconst calResult = $input.first().json;\nconst calId = $json.google_calendar_id;\nlet calendar_available = true;\nlet on_leave_calendar = false;\n\nif (calResult.error || !calResult.calendars) {\n  calendar_available = false;\n} else {\n  const cal = calResult.calendars[calId];\n  on_leave_calendar = cal && cal.busy && cal.busy.length > 0;\n}\n\nconst clockify_available = $json.clockify_available;\nconst on_leave_clockify = $json.on_leave_clockify;\n\nlet is_scheduled = true;\nlet source = '';\n\nif (!clockify_available && !calendar_available) {\n  // Both unavailable \u2014 fail safe, do not contact (SC-18 / F-05.5)\n  is_scheduled = false;\n  source = 'both_unavailable';\n} else if (!clockify_available) {\n  is_scheduled = !on_leave_calendar;\n  source = 'calendar_only';\n} else if (!calendar_available) {\n  is_scheduled = !on_leave_clockify;\n  source = 'clockify_only';\n} else {\n  // Both available \u2014 stricter wins\n  is_scheduled = !on_leave_clockify && !on_leave_calendar;\n  source = 'clockify+calendar';\n}\n\nreturn [{ json: { ...$json, is_scheduled, schedule_source: source } }];"
+      },
+      "id": "node-wf11-evaluate-schedule",
+      "name": "Evaluate Schedule Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf11-both-unavailable",
+              "leftValue": "={{ $json.schedule_source }}",
+              "rightValue": "both_unavailable",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-handle-both-unavailable",
+      "name": "Handle Both Unavailable",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'checkin_sources_failed_' || $1 LIMIT 1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.today] }}"
+        },
+        "options": {},
+        "queryReplacement": "={{ [$json.today] }}"
+      },
+      "id": "node-wf11-check-failure-flag",
+      "name": "Check Sources Failed Flag",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4060,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf11-flag-exists",
+              "leftValue": "={{ $json.value_json !== undefined }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-if-not-yet-flagged",
+      "name": "IF Not Yet Flagged",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4280,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "Check-in dispatcher: could not determine schedule for one or more developers \u2014 both Clockify and Google Calendar unavailable. No check-ins sent today. (F-05.5 / SC-18)"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-post-failure-notice",
+      "name": "Post Sources Unavailable Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4500,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('checkin_sources_failed_' || $1, $2::jsonb)\nON CONFLICT (key) DO NOTHING",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.today, JSON.stringify({ logged: true })] }}"
+        },
+        "options": {},
+        "queryReplacement": "={{ [$json.today, JSON.stringify({ logged: true })] }}"
+      },
+      "id": "node-wf11-write-failure-flag",
+      "name": "Write Sources Failed Flag",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4720,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf11-scheduled",
+              "leftValue": "={{ $json.is_scheduled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-if-scheduled",
+      "name": "IF Scheduled",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4060,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $json.discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-open-dm",
+      "name": "Get or Open DM Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4280,
+        800
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract DM channel ID from result.\nconst dmResult = $input.first().json;\nconst devData = $json;\nif (dmResult.error || !dmResult.id) {\n  return [{ json: { ...devData, dm_channel_id: null, dm_open_failed: true } }];\n}\nreturn [{ json: { ...devData, dm_channel_id: dmResult.id, dm_open_failed: false } }];"
+      },
+      "id": "node-wf11-extract-dm-channel",
+      "name": "Extract DM Channel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "Hey \u2014 we haven't heard from you in today's standup. No worries if things are busy! Is there anything you're working through that I can help coordinate? Feel free to ignore this if everything's on track."
+        },
+        "options": {}
+      },
+      "id": "node-wf11-send-checkin-dm",
+      "name": "Send Check-In DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4720,
+        800
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf11-dm-failed",
+              "leftValue": "={{ $json.error !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-if-dm-failed",
+      "name": "IF DM Send Failed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4940,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('checkin_sent_' || $1 || '_' || $2, $3::jsonb)\nON CONFLICT (key) DO NOTHING",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$node['Check Already Heard From'].json.today, $node['Check Already Heard From'].json.discord_id, JSON.stringify({ sent_at: new Date().toISOString() })] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf11-write-idempotency",
+      "name": "Write Idempotency Key",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        5160,
+        900
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron Trigger \u2014 Daily Check-In": {
+      "main": [
+        [
+          {
+            "node": "Load Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Roster": {
+      "main": [
+        [
+          {
+            "node": "Check Env Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Env Vars": {
+      "main": [
+        [
+          {
+            "node": "Refresh Google Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh Google Token": {
+      "main": [
+        [
+          {
+            "node": "Read Today's Standup-Heard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Today's Standup-Heard": {
+      "main": [
+        [
+          {
+            "node": "Expand Roster to Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Roster to Items": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For Each Developer": {
+      "main": [
+        [
+          {
+            "node": "Check Already Heard From",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Already Heard From": {
+      "main": [
+        [
+          {
+            "node": "IF Already Heard From",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Already Heard From": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Idempotency \u2014 Already Sent Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Idempotency \u2014 Already Sent Today": {
+      "main": [
+        [
+          {
+            "node": "IF Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Already Sent": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Mute List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Mute List": {
+      "main": [
+        [
+          {
+            "node": "IF Muted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Muted": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Clockify Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Clockify Schedule": {
+      "main": [
+        [
+          {
+            "node": "Parse Clockify Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Clockify Result": {
+      "main": [
+        [
+          {
+            "node": "Check Google Calendar OOO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Google Calendar OOO": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Schedule Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Schedule Status": {
+      "main": [
+        [
+          {
+            "node": "Handle Both Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Both Unavailable": {
+      "main": [
+        [
+          {
+            "node": "Check Sources Failed Flag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Sources Failed Flag": {
+      "main": [
+        [
+          {
+            "node": "IF Not Yet Flagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Not Yet Flagged": {
+      "main": [
+        [
+          {
+            "node": "Post Sources Unavailable Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Sources Unavailable Notice": {
+      "main": [
+        [
+          {
+            "node": "Write Sources Failed Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Sources Failed Flag": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Scheduled": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get or Open DM Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get or Open DM Channel": {
+      "main": [
+        [
+          {
+            "node": "Extract DM Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract DM Channel": {
+      "main": [
+        [
+          {
+            "node": "Send Check-In DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Check-In DM": {
+      "main": [
+        [
+          {
+            "node": "IF DM Send Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF DM Send Failed": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write Idempotency Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Idempotency Key": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "id": "WF_11"
+}
