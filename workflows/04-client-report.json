@@ -261,7 +261,7 @@
         450
       ],
       "parameters": {
-        "jsCode": "const draftText = $('Extract Draft').item.json.draft_text;\nconst tlRow = $('Fetch Team Lead').item.json;\n\nif (!String($vars.F03_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-01: n8n variable F03_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\n\nreturn [{ json: {\n  feature_tag: 'F-01',\n  content_type: 'report',\n  draft_text: draftText,\n  approver_discord_id: String(tlRow.discord_id),\n  approval_channel_id: $env.TEAM_LEAD_APPROVAL_CHANNEL_ID,\n  context_json: {}\n} }];"
+        "jsCode": "const draftText = $('Extract Draft').item.json.draft_text;\nconst tlRow = $('Fetch Team Lead').item.json;\n\nif (!String($env.F03_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-01: n8n variable F03_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\n\nreturn [{ json: {\n  feature_tag: 'F-01',\n  content_type: 'report',\n  draft_text: draftText,\n  approver_discord_id: String(tlRow.discord_id),\n  approval_channel_id: $env.TEAM_LEAD_APPROVAL_CHANNEL_ID,\n  context_json: {}\n} }];"
       }
     },
     {
@@ -277,7 +277,7 @@
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "={{ $vars.F03_WORKFLOW_ID }}",
+          "value": "={{ $env.F03_WORKFLOW_ID }}",
           "mode": "id"
         },
         "waitForSubWorkflow": true,

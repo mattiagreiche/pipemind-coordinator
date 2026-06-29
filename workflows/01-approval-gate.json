@@ -113,7 +113,7 @@
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "={{ $vars.F08_WORKFLOW_ID }}",
+          "value": "={{ $env.F08_WORKFLOW_ID }}",
           "mode": "id"
         },
         "waitForSubWorkflow": true,

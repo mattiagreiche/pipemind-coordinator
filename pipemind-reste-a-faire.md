@@ -27,18 +27,56 @@ Mis à jour : 2026-06-28
 
 ---
 
-## Avant de tester en vrai
+## Pour la prochaine session — Setup à compléter
 
-### Variables n8n à setter après import (Settings → Variables)
+### 1. Re-importer 7 workflows dans n8n (fix $vars → $env)
+Les workflows suivants ont été modifiés localement mais pas encore re-importés dans n8n.
+Pour chaque : ouvrir le workflow dans n8n → `...` → **Import from file** → sélectionner le fichier.
 ```
-F08_WORKFLOW_ID               → ID de "02 — F-08: Aggregation Boundary"
-F03_WORKFLOW_ID               → ID de "01 — F-03: Approval Gate"
-F01_WORKFLOW_ID               → ID de "04 — F-01: Client Progress Report"
-DELIVERY_EXECUTOR_WORKFLOW_ID → ID de "01c — F-03: Delivery Executor"
+workflows/01-approval-gate.json
+workflows/03-tl-interaction.json
+workflows/04-client-report.json
+workflows/05-client-qa.json
+workflows/06-client-welcome.json
+workflows/07-developer-query.json
+workflows/09-standup-ingestion.json
 ```
 
-### Discord Developer Portal
+### 2. Configurer roster.json
+Copier `config/roster.example.json` → `config/roster.json` et remplir avec les vrais membres :
+```json
+{
+  "team_lead": { "name": "...", "discord_id": "...", "clockify_user_id": "..." },
+  "developers": [{ "name": "...", "discord_id": "...", "clockify_user_id": "..." }],
+  "client": { "name": "...", "discord_id": "...", "discord_channel_id": "..." }
+}
+```
+
+### 3. Puller le modèle Ollama
+```
+docker exec pipemind-coordinator-ollama-1 ollama pull llama3.2
+```
+
+### 4. Activer les workflows dans n8n (dans cet ordre)
+1. **Workflow 00** — Startup Config Validation (active en premier — valide le roster)
+2. **Workflow 01b** — Approval Resolution (Discord trigger)
+3. **Workflow 01** — Approval Gate (sub-workflow)
+4. **Workflow 01c** — Delivery Executor (sub-workflow)
+5. **Workflow 02** — Aggregation Boundary (sub-workflow)
+6. Tous les autres
+
+### 5. Discord Developer Portal
 - Activer le privileged intent **GUILD_MEMBERS** pour que F-15 reçoive les `guildMemberAdd` events
+- Vérifier que le bot est bien dans le serveur Discord
+
+### Variables n8n (déjà configurées dans .env)
+```
+F08_WORKFLOW_ID               = cWGTd6h2UKJV5GoM
+F03_WORKFLOW_ID               = VATsRDYQMO5oYlP2
+F01_WORKFLOW_ID               = wmNFx8yYrC7VLdGI
+DELIVERY_EXECUTOR_WORKFLOW_ID = 1fGuoRwEUVwCGRpi
+```
+Note : Variables n8n est Enterprise-only — ces IDs sont passés via `$env` maintenant.
 
 ---
 

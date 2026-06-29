@@ -144,7 +144,7 @@
       "typeVersion": 2,
       "position": [2250, 300],
       "parameters": {
-        "jsCode": "const validated = $('Validate & Match Roster').item.json;\nconst summaries = validated.feature_summaries;\nconst standupDate = validated.standup_date;\n\n// Combine feature summaries into one text for F-08 boundary audit\n// Format: \"feature_area: summary\" per line, separated by double newline\n// CRIT-1: Build Signal Upsert will parse f08Result.draft_text back into this format\nconst combined = summaries\n  .map(s => s.feature_area + ': ' + s.summary)\n  .join('\\n\\n');\n\nif (!String($vars.F08_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-04: n8n variable F08_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\n\nreturn [{ json: {\n  draft_text: combined,\n  content_type: 'standup_summary',\n  feature_tag: 'F-04',\n  standup_date: standupDate\n} }];"
+        "jsCode": "const validated = $('Validate & Match Roster').item.json;\nconst summaries = validated.feature_summaries;\nconst standupDate = validated.standup_date;\n\n// Combine feature summaries into one text for F-08 boundary audit\n// Format: \"feature_area: summary\" per line, separated by double newline\n// CRIT-1: Build Signal Upsert will parse f08Result.draft_text back into this format\nconst combined = summaries\n  .map(s => s.feature_area + ': ' + s.summary)\n  .join('\\n\\n');\n\nif (!String($env.F08_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-04: n8n variable F08_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\n\nreturn [{ json: {\n  draft_text: combined,\n  content_type: 'standup_summary',\n  feature_tag: 'F-04',\n  standup_date: standupDate\n} }];"
       }
     },
     {
@@ -157,7 +157,7 @@
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "={{ $vars.F08_WORKFLOW_ID }}",
+          "value": "={{ $env.F08_WORKFLOW_ID }}",
           "mode": "id"
         },
         "waitForSubWorkflow": true,

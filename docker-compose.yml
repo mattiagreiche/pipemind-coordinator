@@ -86,6 +86,11 @@ services:
       JIRA_AUTH: ${JIRA_AUTH}
       CLOCKIFY_API_KEY: ${CLOCKIFY_API_KEY}
       CLOCKIFY_WORKSPACE_ID: ${CLOCKIFY_WORKSPACE_ID}
+      # n8n workflow IDs (set after importing workflows into n8n)
+      F08_WORKFLOW_ID: ${F08_WORKFLOW_ID}
+      F03_WORKFLOW_ID: ${F03_WORKFLOW_ID}
+      F01_WORKFLOW_ID: ${F01_WORKFLOW_ID}
+      DELIVERY_EXECUTOR_WORKFLOW_ID: ${DELIVERY_EXECUTOR_WORKFLOW_ID}
       # Schedule config
       EOD_TIME: ${EOD_TIME}
       REPORT_DAY_TIME: ${REPORT_DAY_TIME}
@@ -108,7 +113,6 @@ services:
 networks:
   pipemind-internal:
     driver: bridge
-    internal: true
 
 volumes:
   postgres_data:

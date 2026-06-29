@@ -108,7 +108,7 @@
       "typeVersion": 2,
       "position": [2250, 50],
       "parameters": {
-        "jsCode": "// L-02: hard fail if variable not configured (avoids silent swallow)\nif (!$vars.F01_WORKFLOW_ID) {\n  throw new Error('F01_WORKFLOW_ID n8n variable is not configured. Import the F-01 workflow first.');\n}\nreturn [{ json: {\n  trigger: 'on_demand',\n  requested_by: $('Classify Intent').item.json.author_id\n} }];"
+        "jsCode": "// L-02: hard fail if variable not configured (avoids silent swallow)\nif (!$env.F01_WORKFLOW_ID) {\n  throw new Error('F01_WORKFLOW_ID n8n variable is not configured. Import the F-01 workflow first.');\n}\nreturn [{ json: {\n  trigger: 'on_demand',\n  requested_by: $('Classify Intent').item.json.author_id\n} }];"
       }
     },
     {
@@ -121,7 +121,7 @@
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "={{ $vars.F01_WORKFLOW_ID }}",
+          "value": "={{ $env.F01_WORKFLOW_ID }}",
           "mode": "id"
         },
         "waitForSubWorkflow": true,

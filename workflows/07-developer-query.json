@@ -554,7 +554,7 @@
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "={{ $vars.DELIVERY_EXECUTOR_WORKFLOW_ID }}",
+          "value": "={{ $env.DELIVERY_EXECUTOR_WORKFLOW_ID }}",
           "mode": "id"
         },
         "waitForSubWorkflow": true,
