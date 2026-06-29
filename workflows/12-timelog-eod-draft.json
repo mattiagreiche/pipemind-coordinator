@@ -1,0 +1,1374 @@
+{
+  "name": "12 \u2014 Time-Logging EOD Draft (F-07 Draft)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-wf12-cron",
+      "name": "Cron Trigger \u2014 EOD",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load roster \u2014 extract active team members with all schedule fields.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet roster;\ntry {\n  roster = yaml.load(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  throw new Error('EOD Draft: cannot load roster.yml: ' + e.message);\n}\nconst activeTeam = (roster.team || []).filter(m => m.active !== false);\nreturn [{\n  json: {\n    team: activeTeam,\n    team_lead_channel_id: roster.team_lead_channel_id\n  }\n}];"
+      },
+      "id": "node-wf12-load-roster",
+      "name": "Load Roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verify required env vars.\nconst required = ['EOD_TIME', 'CLOCKIFY_API_KEY', 'CLOCKIFY_WORKSPACE_ID', 'DISCORD_BOT_TOKEN', 'OLLAMA_BASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN'];\nconst missing = required.filter(k => !process.env[k] || process.env[k].trim() === '');\nif (missing.length > 0) {\n  throw new Error('FATAL: EOD Draft missing env vars: ' + missing.join(', '));\n}\nreturn [{ json: $json }];"
+      },
+      "id": "node-wf12-check-env",
+      "name": "Check Env Vars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://oauth2.googleapis.com/token",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "client_id": "={{ $env.GOOGLE_CLIENT_ID }}",
+          "client_secret": "={{ $env.GOOGLE_CLIENT_SECRET }}",
+          "refresh_token": "={{ $env.GOOGLE_REFRESH_TOKEN }}",
+          "grant_type": "refresh_token"
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf12-refresh-token",
+      "name": "Refresh Google Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'standup_heard_' || to_char(now(), 'YYYY-MM-DD') LIMIT 1",
+        "options": {}
+      },
+      "id": "node-wf12-read-heard",
+      "name": "Read Today's Standup-Heard",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        980,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'project_picture' LIMIT 1",
+        "options": {}
+      },
+      "id": "node-wf12-read-project-picture",
+      "name": "Read Project Picture",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Expand roster to individual items with all context.\nconst rosterData = $node['Load Roster'].json;\nconst tokenResult = $node['Refresh Google Token'].json;\nconst heardRow = $node['Read Today\\'s Standup-Heard'].json;\nconst pictureRow = $node['Read Project Picture'].json;\n\nconst accessToken = (tokenResult && tokenResult.access_token) ? tokenResult.access_token : null;\nconst heardIds = (heardRow && heardRow.value_json)\n  ? (Array.isArray(heardRow.value_json) ? heardRow.value_json : [])\n  : [];\nconst projectPicture = (pictureRow && pictureRow.value_json)\n  ? (typeof pictureRow.value_json === 'object' ? pictureRow.value_json : JSON.parse(pictureRow.value_json))\n  : null;\n\nreturn rosterData.team.map(m => ({\n  json: {\n    ...m,\n    team_lead_channel_id: rosterData.team_lead_channel_id,\n    heard_ids: heardIds,\n    project_picture: projectPicture,\n    access_token: accessToken,\n    today: new Date().toISOString().slice(0, 10)\n  }\n}));"
+      },
+      "id": "node-wf12-expand-roster",
+      "name": "Expand Roster to Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-wf12-for-each-dev",
+      "name": "For Each Developer",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/time-off/requests?status=APPROVED&start={{ $json.today }}T00:00:00Z&end={{ $json.today }}T23:59:59Z",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf12-check-clockify-schedule",
+      "name": "Check Clockify Schedule",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1860,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst clockifyId = $json.clockify_id;\nlet clockify_available = true;\nlet on_leave_clockify = false;\n\nif (result.error || !Array.isArray(result)) {\n  clockify_available = false;\n} else {\n  on_leave_clockify = result.some(req => req.userId === clockifyId && req.status === 'APPROVED');\n}\nreturn [{ json: { ...$json, clockify_available, on_leave_clockify } }];"
+      },
+      "id": "node-wf12-parse-clockify",
+      "name": "Parse Clockify Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ timeMin: $json.today + 'T00:00:00Z', timeMax: $json.today + 'T23:59:59Z', items: [{ id: $json.google_calendar_id }] }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf12-check-calendar",
+      "name": "Check Google Calendar OOO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2300,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evaluate schedule status \u2014 stricter source wins (SC-06a).\nconst calResult = $input.first().json;\nconst calId = $json.google_calendar_id;\nlet calendar_available = true;\nlet on_leave_calendar = false;\n\nif (calResult.error || !calResult.calendars) {\n  calendar_available = false;\n} else {\n  const cal = calResult.calendars[calId];\n  on_leave_calendar = cal && cal.busy && cal.busy.length > 0;\n}\n\nconst clockify_available = $json.clockify_available;\nconst on_leave_clockify = $json.on_leave_clockify;\nconst today = $json.today;\n\nlet is_scheduled = true;\nlet source = '';\n\nif (!clockify_available && !calendar_available) {\n  is_scheduled = false;\n  source = 'both_unavailable';\n} else if (!clockify_available) {\n  is_scheduled = !on_leave_calendar;\n  source = 'calendar_only';\n} else if (!calendar_available) {\n  is_scheduled = !on_leave_clockify;\n  source = 'clockify_only';\n} else {\n  is_scheduled = !on_leave_clockify && !on_leave_calendar;\n  source = 'clockify+calendar';\n}\n\n// Post team lead notice for both_unavailable (once per run)\nif (source === 'both_unavailable') {\n  // We use project_memory key timelog_sources_failed_{{ today }} as a flag \u2014 checked externally\n}\n\nreturn [{ json: { ...$json, is_scheduled, schedule_source: source } }];"
+      },
+      "id": "node-wf12-evaluate-schedule",
+      "name": "Evaluate Schedule Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf12-both-unavailable",
+              "leftValue": "={{ $json.schedule_source }}",
+              "rightValue": "both_unavailable",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-route-both-unavailable",
+      "name": "Handle Both Unavailable",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'timelog_sources_failed_' || $1 LIMIT 1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.today] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-check-timelog-flag",
+      "name": "Check Timelog Sources Failed Flag",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2960,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf12-flag-not-set",
+              "leftValue": "={{ $json.value_json !== undefined }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-if-not-yet-flagged",
+      "name": "IF Not Yet Flagged",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3180,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "Time-logging helper: could not determine schedule \u2014 both Clockify and Google Calendar unavailable. No EOD drafts sent today. (F-07.6 / SC-18)"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-post-sources-failure",
+      "name": "Post Sources Unavailable Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3400,
+        100
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('timelog_sources_failed_' || $1, $2::jsonb)\nON CONFLICT (key) DO NOTHING",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.today, JSON.stringify({ logged: true })] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-write-timelog-flag",
+      "name": "Write Timelog Sources Failed Flag",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3620,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf12-scheduled",
+              "leftValue": "={{ $json.is_scheduled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-if-scheduled",
+      "name": "IF Scheduled",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2960,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/user/{{ $json.clockify_id }}/time-entries?start={{ $json.today }}T00:00:00Z&end={{ $json.today }}T23:59:59Z&page=1&page-size=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf12-check-clockify-entries",
+      "name": "Check Clockify for Existing Time Entries",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3180,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nlet clockify_check_failed = false;\nlet already_logged = false;\n\nif (result.error || !Array.isArray(result)) {\n  clockify_check_failed = true;\n} else {\n  already_logged = result.length > 0;\n}\nreturn [{ json: { ...$json, clockify_check_failed, already_logged } }];"
+      },
+      "id": "node-wf12-evaluate-time-entry-state",
+      "name": "Evaluate Time Entry State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf12-clockify-check-failed",
+              "leftValue": "={{ $json.clockify_check_failed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-route-clockify-failed",
+      "name": "Route: Clockify Check Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $json.discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-open-dm-clockify-fail",
+      "name": "Get or Open DM Channel (Clockify Fail)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "Time-logging helper: I couldn't check your Clockify entries today \u2014 the service is unavailable. No time entry has been drafted. Please log your time manually when the service is back. (F-07.6)"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-post-clockify-fail-dm",
+      "name": "Post Clockify Fail DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4060,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf12-already-logged",
+              "leftValue": "={{ $json.already_logged }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-if-already-logged",
+      "name": "IF Already Logged",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $json.discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-open-dm-already-logged",
+      "name": "Get or Open DM Channel (Already Logged)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4060,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "Time-logging helper: You already have a time entry logged in Clockify for today. No action needed from me. Have a great rest of the day!"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-post-already-logged-dm",
+      "name": "Post Already Logged DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4280,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM drafts WHERE type = 'time_entry' AND approver_discord_id = $1 AND status = 'pending' AND created_at > now() - INTERVAL '48 hours' LIMIT 1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.discord_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-check-draft-idempotency",
+      "name": "Check Draft Idempotency",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4060,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf12-draft-exists",
+              "leftValue": "={{ $json.id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-if-draft-exists",
+      "name": "IF Draft Already Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4280,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble time entry draft \u2014 LLM for description.\n// System prompt is verbatim from the planner \u2014 do not alter.\nconst data = $json;\nconst today = data.today;\nconst projectPicture = data.project_picture;\nconst heardIds = data.heard_ids || [];\nconst discordId = data.discord_id;\n\n// Determine EOD hour/minute\nconst eodTime = process.env.EOD_TIME || '17:00';\nconst eodParts = eodTime.split(':');\nconst eodHour = eodParts[0].padStart(2, '0');\nconst eodMin = (eodParts[1] || '00').padStart(2, '0');\n\n// Build standup context \u2014 project-level feature context only (no raw standup, no other developer names)\nlet standupContext = 'No standup data available for today. Generic placeholder needed.';\nif (projectPicture && projectPicture.features && heardIds.includes(discordId)) {\n  const recentProgress = projectPicture.features\n    .filter(f => f.recent_progress)\n    .map(f => f.recent_progress)\n    .join(' ');\n  if (recentProgress) standupContext = recentProgress;\n}\n\nconst systemPrompt = `You are a project coordination assistant helping a developer log their time at the end of the day.\n\nMANDATORY RULES:\n1. Draft a short, honest time entry description (1-2 sentences) for the developer's day.\n2. Use only project-level feature context provided \u2014 do not invent tasks.\n3. Do not name any other team member.\n4. If no specific work context is available, produce a generic, honest placeholder. The developer will edit it.\n5. Phrase the description in first-person work terms, not in a status-report style.\n6. Output ONLY valid JSON \u2014 no prose, no fences:\n   { \"description\": \"<time entry description>\" }`;\n\nconst userMessage = `Developer work area context (project-level only): ${standupContext}\\nToday's date: ${today}\\nDraft a probable time entry description for this developer's day.`;\n\nconst llmRequest = {\n  model: 'llama3',\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userMessage }\n  ],\n  temperature: 0.2,\n  stream: false\n};\n\nreturn [{ json: { ...data, llm_request: llmRequest, eod_hour: eodHour, eod_min: eodMin } }];"
+      },
+      "id": "node-wf12-assemble-draft-text",
+      "name": "Assemble Time Entry Draft Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.OLLAMA_BASE_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.llm_request) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "node-wf12-call-ollama",
+      "name": "Call Ollama \u2014 Draft Description",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4720,
+        700
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build final draft content \u2014 use LLM output or fallback.\nconst llmResponse = $input.first().json;\nconst data = $node['Assemble Time Entry Draft Text'].json;\nconst today = data.today;\nconst eodHour = data.eod_hour;\nconst eodMin = data.eod_min;\n\nlet description = 'Time entry for ' + today + ' \u2014 please edit to reflect your actual work.';\nif (llmResponse.choices && llmResponse.choices[0]) {\n  try {\n    const parsed = JSON.parse(\n      llmResponse.choices[0].message.content.trim()\n        .replace(/^```json\\s*/i, '').replace(/\\s*```$/, '')\n    );\n    if (parsed.description) description = parsed.description;\n  } catch (e) { /* use fallback */ }\n}\n\nconst draftText = [\n  `**Time Entry Draft \u2014 ${today}**`,\n  '',\n  `**Description:** ${description}`,\n  `**Start:** ${today} 09:00 UTC`,\n  `**End:** ${today} ${eodHour}:${eodMin} UTC`,\n  '',\n  'Reply `!approve <draft_id>` to log this entry, `!edit <draft_id> <new description>` to change the description, or `!reject <draft_id>` to skip.'\n].join('\\n');\n\nreturn [{\n  json: {\n    ...data,\n    description,\n    start_iso: today + 'T09:00:00Z',\n    end_iso: today + 'T' + eodHour + ':' + eodMin + ':00Z',\n    draft_text: draftText\n  }\n}];"
+      },
+      "id": "node-wf12-build-draft-content",
+      "name": "Build Draft Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4940,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $json.discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-open-dm-draft",
+      "name": "Get or Open DM Channel (Draft)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5160,
+        700
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract DM channel ID; merge with draft data.\nconst dmResult = $input.first().json;\nconst draftData = $node['Build Draft Content'].json;\nif (dmResult.error || !dmResult.id) {\n  throw new Error('EOD Draft: cannot open DM channel for ' + draftData.discord_id);\n}\nreturn [{ json: { ...draftData, dm_channel_id: dmResult.id } }];"
+      },
+      "id": "node-wf12-extract-dm-channel",
+      "name": "Extract DM Channel for Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5380,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "value": "WORKFLOW_02_ID"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "type": "time_entry",
+            "content_text": "={{ $json.draft_text }}",
+            "approver_discord_id": "={{ $json.discord_id }}",
+            "approval_channel_id": "={{ $json.dm_channel_id }}",
+            "metadata_json": "={{ { clockify_id: $json.clockify_id, developer_discord_id: $json.discord_id, date: $json.today, description: $json.description, start_iso: $json.start_iso, end_iso: $json.end_iso } }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "node-wf12-call-wf02",
+      "name": "Call Workflow 02 \u2014 Post Draft",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        5600,
+        700
+      ],
+      "notes": "Replace WORKFLOW_02_ID with the actual n8n ID of workflow 02 after import."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('action_log_timelog_draft_' || $1 || '_' || $2, $3::jsonb)\nON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$node['Extract DM Channel for Draft'].json.discord_id, $node['Extract DM Channel for Draft'].json.today, JSON.stringify({ action: 'time_entry_drafted', draft_id: $json.draft_id || 'unknown', developer_discord_id: $node['Extract DM Channel for Draft'].json.discord_id, date: $node['Extract DM Channel for Draft'].json.today, timestamp: new Date().toISOString() })] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf12-log-action",
+      "name": "Log Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        5820,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567891",
+      "name": "Token Refresh Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        980,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.error !== undefined }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567892",
+      "name": "Post Token Refresh Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1200,
+        180
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $env.TEAM_LEAD_CHANNEL_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "body": "={\"content\": \"\\u26a0\\ufe0f **EOD time-log draft**: Google Calendar token refresh failed. Calendar availability checks are skipped for today's run \u2014 Clockify schedule is still used. Please re-authorise the Google OAuth token.\"}"
+      }
+    }
+  ],
+  "connections": {
+    "Cron Trigger \u2014 EOD": {
+      "main": [
+        [
+          {
+            "node": "Load Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Roster": {
+      "main": [
+        [
+          {
+            "node": "Check Env Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Env Vars": {
+      "main": [
+        [
+          {
+            "node": "Refresh Google Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh Google Token": {
+      "main": [
+        [
+          {
+            "node": "Token Refresh Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Today's Standup-Heard": {
+      "main": [
+        [
+          {
+            "node": "Read Project Picture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Project Picture": {
+      "main": [
+        [
+          {
+            "node": "Expand Roster to Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Roster to Items": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For Each Developer": {
+      "main": [
+        [
+          {
+            "node": "Check Clockify Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Clockify Schedule": {
+      "main": [
+        [
+          {
+            "node": "Parse Clockify Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Clockify Result": {
+      "main": [
+        [
+          {
+            "node": "Check Google Calendar OOO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Google Calendar OOO": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Schedule Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Schedule Status": {
+      "main": [
+        [
+          {
+            "node": "Handle Both Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Both Unavailable": {
+      "main": [
+        [
+          {
+            "node": "Check Timelog Sources Failed Flag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Timelog Sources Failed Flag": {
+      "main": [
+        [
+          {
+            "node": "IF Not Yet Flagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Not Yet Flagged": {
+      "main": [
+        [
+          {
+            "node": "Post Sources Unavailable Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Sources Unavailable Notice": {
+      "main": [
+        [
+          {
+            "node": "Write Timelog Sources Failed Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Timelog Sources Failed Flag": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Scheduled": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Clockify for Existing Time Entries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Clockify for Existing Time Entries": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Time Entry State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Time Entry State": {
+      "main": [
+        [
+          {
+            "node": "Route: Clockify Check Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route: Clockify Check Failed?": {
+      "main": [
+        [
+          {
+            "node": "Get or Open DM Channel (Clockify Fail)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Already Logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get or Open DM Channel (Clockify Fail)": {
+      "main": [
+        [
+          {
+            "node": "Post Clockify Fail DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Clockify Fail DM": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Already Logged": {
+      "main": [
+        [
+          {
+            "node": "Get or Open DM Channel (Already Logged)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Draft Idempotency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get or Open DM Channel (Already Logged)": {
+      "main": [
+        [
+          {
+            "node": "Post Already Logged DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Already Logged DM": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Draft Idempotency": {
+      "main": [
+        [
+          {
+            "node": "IF Draft Already Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Draft Already Exists": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assemble Time Entry Draft Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Time Entry Draft Text": {
+      "main": [
+        [
+          {
+            "node": "Call Ollama \u2014 Draft Description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama \u2014 Draft Description": {
+      "main": [
+        [
+          {
+            "node": "Build Draft Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Draft Content": {
+      "main": [
+        [
+          {
+            "node": "Get or Open DM Channel (Draft)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get or Open DM Channel (Draft)": {
+      "main": [
+        [
+          {
+            "node": "Extract DM Channel for Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract DM Channel for Draft": {
+      "main": [
+        [
+          {
+            "node": "Call Workflow 02 \u2014 Post Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Workflow 02 \u2014 Post Draft": {
+      "main": [
+        [
+          {
+            "node": "Log Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Action": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token Refresh Failed?": {
+      "main": [
+        [
+          {
+            "node": "Post Token Refresh Failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Today's Standup-Heard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Token Refresh Failure": {
+      "main": [
+        [
+          {
+            "node": "Read Today's Standup-Heard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "id": "WF_12"
+}
