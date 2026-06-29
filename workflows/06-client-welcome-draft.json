@@ -1,0 +1,483 @@
+{
+  "name": "06 \u2014 Client Welcome Message \u2014 Draft (F-15)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/2 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-cron-trigger",
+      "name": "Cron Trigger \u2014 Every 2 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load roster.yml. Extract client.discord_id, channel IDs.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet roster;\ntry {\n  roster = yaml.load(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  throw new Error('Welcome Draft: cannot load roster.yml: ' + e.message);\n}\nreturn [{\n  json: {\n    client_discord_id: roster.client.discord_id,\n    client_channel_id: roster.client_channel_id,\n    team_lead_channel_id: roster.team_lead_channel_id,\n    team_lead_discord_id: roster.team_lead.discord_id,\n    roster_names: roster.team.map(m => m.name).concat([roster.team_lead.name]),\n    manual: false\n  }\n}];"
+      },
+      "id": "node-load-roster",
+      "name": "Load Roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.client_channel_id }}",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          }
+        ],
+        "options": {}
+      },
+      "id": "node-get-channel-guild",
+      "name": "Get Client Channel Guild ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/guilds/{{ $json.guild_id }}/members?limit=1000",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          }
+        ],
+        "options": {}
+      },
+      "id": "node-get-guild-members",
+      "name": "Get Current Guild Members",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        400
+      ],
+      "notes": "FIX 8: limit=1000 is Discord API maximum. For guilds with >1000 members, implement pagination using the after= parameter."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'known_channel_members' LIMIT 1",
+        "options": {}
+      },
+      "id": "node-load-known-members",
+      "name": "Load Known Members Snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        980,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compare snapshots to find new members.\n// If no known snapshot: save current as baseline and stop (first-run seed).\n// Only proceed if client.discord_id is in new_members.\nconst currentMembersRaw = $node['Get Current Guild Members'].json;\nconst rosterData = $node['Load Roster'].json;\nconst snapshotRow = $input.first().json;\n\nconst currentMembers = Array.isArray(currentMembersRaw) ? currentMembersRaw.map(m => m.user && m.user.id).filter(Boolean) : [];\nconst clientDiscordId = rosterData.client_discord_id;\n\nif (!snapshotRow || !snapshotRow.value_json) {\n  // First run: seed with current members, no welcome triggered\n  return [{ json: {\n    seed_only: true,\n    current_members: currentMembers,\n    client_discord_id: clientDiscordId,\n    client_channel_id: rosterData.client_channel_id,\n    team_lead_channel_id: rosterData.team_lead_channel_id,\n    team_lead_discord_id: rosterData.team_lead_discord_id,\n    roster_names: rosterData.roster_names\n  }}];\n}\n\nconst knownMembers = typeof snapshotRow.value_json === 'string' ? JSON.parse(snapshotRow.value_json) : snapshotRow.value_json;\nconst knownSet = new Set(Array.isArray(knownMembers) ? knownMembers : []);\nconst newMembers = currentMembers.filter(id => !knownSet.has(id));\nconst clientIsNew = newMembers.includes(clientDiscordId);\n\nreturn [{ json: {\n  seed_only: false,\n  client_is_new: clientIsNew,\n  current_members: currentMembers,\n  client_discord_id: clientDiscordId,\n  client_channel_id: rosterData.client_channel_id,\n  team_lead_channel_id: rosterData.team_lead_channel_id,\n  team_lead_discord_id: rosterData.team_lead_discord_id,\n  roster_names: rosterData.roster_names\n}}];"
+      },
+      "id": "node-compare-snapshots",
+      "name": "Compare Member Snapshots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json) VALUES ('known_channel_members', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ JSON.stringify($json.current_members) }}"
+        },
+        "options": {}
+      },
+      "id": "node-save-updated-snapshot",
+      "name": "Save Updated Snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1420,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-client-new",
+              "leftValue": "={{ $json.client_is_new }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-client-is-new",
+      "name": "Client Is New Member?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM drafts WHERE type = 'client_welcome' AND status IN ('approved', 'executed', 'pending') LIMIT 1",
+        "options": {}
+      },
+      "id": "node-idempotency-check",
+      "name": "Idempotency Check \u2014 Welcome Already Sent?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1860,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-welcome-exists",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-no-existing-welcome",
+      "name": "No Existing Welcome Draft?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Ollama request for welcome message draft.\n// System prompt is verbatim from the planner.\nconst data = $node['Save Updated Snapshot'].json;\nconst llmRequest = {\n  model: 'llama3',\n  messages: [\n    {\n      role: 'system',\n      content: 'You are a project coordination assistant. Draft a brief, warm welcome message for the client who has just joined the project\\'s Discord channel. The message should explain that they can ask questions about the project here and expect project-level updates. Keep it under 80 words. Friendly and professional tone. Do not reference any individual team members by name.'\n    },\n    {\n      role: 'user',\n      content: 'Draft a welcome message for our client who just joined the channel.'\n    }\n  ],\n  temperature: 0.3,\n  stream: false\n};\nreturn [{ json: {\n  llm_request: llmRequest,\n  client_channel_id: data.client_channel_id,\n  team_lead_channel_id: data.team_lead_channel_id,\n  team_lead_discord_id: data.team_lead_discord_id,\n  roster_names: data.roster_names\n}}];"
+      },
+      "id": "node-build-welcome-prompt",
+      "name": "Build Welcome Message Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.OLLAMA_BASE_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.llm_request) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "node-call-ollama",
+      "name": "Call Ollama \u2014 Draft Welcome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2520,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract welcome text from LLM response.\nconst result = $input.first().json;\nconst data = $node['Build Welcome Message Prompt'].json;\n\nlet welcomeText = 'Welcome! You can ask questions about the project here and we will provide project-level updates. Feel free to ask anything.';\nif (!result.error && result.choices && result.choices[0]) {\n  welcomeText = result.choices[0].message.content || welcomeText;\n}\n\nreturn [{ json: {\n  welcome_text_raw: welcomeText,\n  ...data\n}}];"
+      },
+      "id": "node-extract-welcome-text",
+      "name": "Extract Welcome Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Privacy Validation: scan welcome text for roster member names.\n// Welcome messages should not name team members.\nconst data = $json;\nconst rosterNames = data.roster_names || [];\nlet text = data.welcome_text_raw || '';\nconst warnings = [];\n\nfor (const name of rosterNames) {\n  if (!name) continue;\n  const escapedName = name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const regex = new RegExp(`\\\\b${escapedName}\\\\b`, 'gi');\n  if (regex.test(text)) {\n    text = text.replace(regex, '[REMOVED \u2014 individual attribution]');\n    warnings.push(name);\n  }\n}\n\nif (warnings.length > 0) {\n  text += `\\n\\n[Warning: individual attribution removed: ${warnings.join(', ')}]`;\n}\n\nreturn [{ json: {\n  welcome_text: text,\n  client_channel_id: data.client_channel_id,\n  team_lead_channel_id: data.team_lead_channel_id,\n  team_lead_discord_id: data.team_lead_discord_id,\n  privacy_warnings: warnings\n}}];"
+      },
+      "id": "node-privacy-validation",
+      "name": "Privacy Validation (Name Scan)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "value": "WORKFLOW_02_ID"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "type": "client_welcome",
+            "content_text": "={{ $json.welcome_text }}",
+            "approver_discord_id": "={{ $json.team_lead_discord_id }}",
+            "approval_channel_id": "={{ $json.team_lead_channel_id }}",
+            "metadata_json": "={{ { reply_channel_id: $json.client_channel_id } }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "node-post-via-approval-gate",
+      "name": "Post Draft via Approval Gate (Sub-Workflow 02)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        3180,
+        300
+      ],
+      "notes": "Replace WORKFLOW_02_ID with the actual n8n ID of workflow 02 after import."
+    }
+  ],
+  "connections": {
+    "Cron Trigger \u2014 Every 2 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Load Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Roster": {
+      "main": [
+        [
+          {
+            "node": "Get Client Channel Guild ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Client Channel Guild ID": {
+      "main": [
+        [
+          {
+            "node": "Get Current Guild Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Current Guild Members": {
+      "main": [
+        [
+          {
+            "node": "Load Known Members Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Known Members Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Compare Member Snapshots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare Member Snapshots": {
+      "main": [
+        [
+          {
+            "node": "Save Updated Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Updated Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Client Is New Member?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Client Is New Member?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Idempotency Check \u2014 Welcome Already Sent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idempotency Check \u2014 Welcome Already Sent?": {
+      "main": [
+        [
+          {
+            "node": "No Existing Welcome Draft?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Existing Welcome Draft?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Build Welcome Message Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Welcome Message Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Ollama \u2014 Draft Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama \u2014 Draft Welcome": {
+      "main": [
+        [
+          {
+            "node": "Extract Welcome Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Welcome Text": {
+      "main": [
+        [
+          {
+            "node": "Privacy Validation (Name Scan)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Privacy Validation (Name Scan)": {
+      "main": [
+        [
+          {
+            "node": "Post Draft via Approval Gate (Sub-Workflow 02)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

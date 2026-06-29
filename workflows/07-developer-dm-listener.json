@@ -1,0 +1,941 @@
+{
+  "name": "07 \u2014 Developer DM Listener (F-17)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/2 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-cron-trigger",
+      "name": "Cron Trigger \u2014 Every 2 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load roster.yml. Extract active team members with discord_id and name.\n// NO approval gate for F-17 \u2014 this is intentional per spec.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet roster;\ntry {\n  roster = yaml.load(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  throw new Error('Dev DM Listener: cannot load roster.yml: ' + e.message);\n}\nconst activeTeam = (roster.team || []).filter(m => m.active !== false);\nreturn [{\n  json: {\n    active_team: activeTeam,\n    roster_names: activeTeam.map(m => m.name).concat([roster.team_lead.name])\n  }\n}];"
+      },
+      "id": "node-load-roster",
+      "name": "Load Roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Expand active_team into individual items for SplitInBatches.\nconst rosterData = $json;\nreturn rosterData.active_team.map(m => ({\n  json: {\n    developer_discord_id: m.discord_id,\n    developer_name: m.name,\n    roster_names: rosterData.roster_names\n  }\n}));"
+      },
+      "id": "node-expand-developers",
+      "name": "Expand Developers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-for-each-dev-split",
+      "name": "For Each Developer (Split)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        760,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $json.developer_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-get-or-open-dm-channel",
+      "name": "Get or Open DM Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        980,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cache the DM channel ID in project_memory for reuse.\nconst dmResult = $input.first().json;\nconst devData = $node['For Each Developer (Split)'].json;\n\nif (dmResult.error || !dmResult.id) {\n  // Cannot open DM \u2014 log and skip this developer\n  return [{ json: { skip: true, reason: 'Cannot open DM: ' + (dmResult.error || 'no id'), developer_discord_id: devData.developer_discord_id } }];\n}\n\nreturn [{\n  json: {\n    skip: false,\n    dm_channel_id: dmResult.id,\n    developer_discord_id: devData.developer_discord_id,\n    developer_name: devData.developer_name,\n    roster_names: devData.roster_names,\n    cursor_key: 'dev_dm_last_msg_' + devData.developer_discord_id\n  }\n}];"
+      },
+      "id": "node-extract-dm-channel",
+      "name": "Extract DM Channel ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-check-skip",
+      "name": "Can Access DM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = $1 LIMIT 1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ $json.cursor_key }}"
+        },
+        "options": {}
+      },
+      "id": "node-fetch-cursor",
+      "name": "Fetch DM Cursor",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1640,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read cursor and prepare for Discord API call.\nconst cursorRow = $input.first().json;\nconst dmData = $node['Extract DM Channel ID'].json;\nconst lastMsgId = cursorRow && cursorRow.value_json ? cursorRow.value_json : null;\nconst afterParam = lastMsgId ? `&after=${lastMsgId}` : '';\nreturn [{ json: {\n  ...dmData,\n  last_msg_id: lastMsgId,\n  after_param: afterParam\n}}];"
+      },
+      "id": "node-prepare-fetch",
+      "name": "Prepare Fetch Parameters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages?limit=10{{ $json.after_param }}",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          }
+        ],
+        "options": {}
+      },
+      "id": "node-fetch-dm-messages",
+      "name": "Fetch Unprocessed DM Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter to messages from the developer (not from bot).\n// Bot messages are identified by matching bot_discord_id stored in project_memory.\n// For safety: filter to messages where author.id == developer_discord_id.\nconst messages = $input.first().json;\nconst devData = $node['Prepare Fetch Parameters'].json;\n\nif (!Array.isArray(messages) || messages.length === 0) {\n  return [];\n}\n\nconst devId = devData.developer_discord_id;\nconst devMessages = messages.filter(m => m.author && m.author.id === devId);\n\nif (devMessages.length === 0) return [];\n\nconst highestId = devMessages.map(m => m.id).reduce((a, b) => a > b ? a : b, devMessages[0].id);\n\nreturn devMessages.map(m => ({\n  json: {\n    message_id: m.id,\n    message_content: m.content,\n    dm_channel_id: devData.dm_channel_id,\n    developer_discord_id: devData.developer_discord_id,\n    developer_name: devData.developer_name,\n    roster_names: devData.roster_names,\n    cursor_key: devData.cursor_key,\n    highest_id: highestId\n  }\n}));"
+      },
+      "id": "node-filter-dev-messages",
+      "name": "Filter Developer Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ $json.cursor_key }},={{ JSON.stringify($json.highest_id) }}"
+        },
+        "options": {}
+      },
+      "id": "node-persist-cursor",
+      "name": "Persist DM Cursor",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2520,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-for-each-message",
+      "name": "For Each Message",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2740,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Classify message: !mute, !unmute, !explain, or Q&A.\nconst content = ($json.message_content || '').trim();\nconst lower = content.toLowerCase();\nlet type;\nif (lower === '!mute') {\n  type = 'mute';\n} else if (lower === '!unmute') {\n  type = 'unmute';\n} else if (lower.startsWith('!explain')) {\n  type = 'explain';\n} else {\n  type = 'qa';\n}\nreturn [{ json: { ...$json, message_type: type } }];"
+      },
+      "id": "node-detect-message-type",
+      "name": "Detect Message Type",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2960,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "sw-mute",
+                    "leftValue": "={{ $json.message_type }}",
+                    "rightValue": "mute",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "mute"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "sw-unmute",
+                    "leftValue": "={{ $json.message_type }}",
+                    "rightValue": "unmute",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "unmute"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "sw-explain",
+                    "leftValue": "={{ $json.message_type }}",
+                    "rightValue": "explain",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "explain"
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "node-route-message-type",
+      "name": "Route Message Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        3180,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO mute_list (discord_id, muted_by) VALUES ($1, $1) ON CONFLICT DO NOTHING",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ $json.developer_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-mute-handler-db",
+      "name": "Mute Handler \u2014 Insert Mute",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3400,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "You've been muted. I will no longer send you proactive messages. Reply `!unmute` to re-enable."
+        },
+        "options": {}
+      },
+      "id": "node-mute-handler-reply",
+      "name": "Mute Handler \u2014 Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3620,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM mute_list WHERE discord_id = $1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ $json.developer_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-unmute-handler-db",
+      "name": "Unmute Handler \u2014 Delete Mute",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3400,
+        340
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "You've been unmuted. I will resume sending you helpful messages."
+        },
+        "options": {}
+      },
+      "id": "node-unmute-handler-reply",
+      "name": "Unmute Handler \u2014 Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3620,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transparency handler (SC-13): explain what the agent did.\n// Only return information relevant to this developer's own data.\nconst content = ($json.message_content || '').trim();\nconst subject = content.replace(/^!explain\\s*/i, '').trim();\nreturn [{ json: { ...$json, explain_subject: subject } }];"
+      },
+      "id": "node-explain-handler-parse",
+      "name": "Explain Handler \u2014 Parse Subject",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT key, value_json FROM project_memory WHERE key LIKE 'action_log_%'",
+        "options": {}
+      },
+      "id": "node-explain-handler-fetch-logs",
+      "name": "Explain Handler \u2014 Fetch Logs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3620,
+        480
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build explanation using only this developer's own data (SC-13).\n// Third-party individual data must not be exposed.\nconst devData = $node['Explain Handler \u2014 Parse Subject'].json;\nconst subject = devData.explain_subject.toLowerCase();\nconst devId = devData.developer_discord_id;\nconst logs = $input.all();\n\n// Filter to logs involving this developer only\nconst matching = logs.filter(item => {\n  const v = typeof item.json.value_json === 'string' ? JSON.parse(item.json.value_json) : item.json.value_json;\n  const keyMatches = (item.json.key || '').toLowerCase().includes(subject);\n  const bodyMatches = JSON.stringify(v).toLowerCase().includes(subject);\n  // Only include if it's a dev_dm log for this developer OR a general log (no individual_id that differs)\n  const isThisDev = v.developer_discord_id && v.developer_discord_id === devId;\n  return (keyMatches || bodyMatches) && isThisDev;\n});\n\nlet explanation;\nif (matching.length === 0) {\n  explanation = `No recent actions found matching '${devData.explain_subject}'. I have not logged any action with that description recently.`;\n} else {\n  const lines = matching.map(item => {\n    const v = typeof item.json.value_json === 'string' ? JSON.parse(item.json.value_json) : item.json.value_json;\n    return `- Action: ${v.action || 'unknown'} | At: ${v.timestamp || 'n/a'}`;\n  });\n  explanation = `Here is what I did related to '${devData.explain_subject}':\\n${lines.join('\\n')}\\n\\nI do not include information about other team members in this explanation. (SC-13)`;\n}\n\nreturn [{ json: { explanation, dm_channel_id: devData.dm_channel_id } }];"
+      },
+      "id": "node-explain-handler-compose",
+      "name": "Explain Handler \u2014 Compose Explanation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.explanation }}"
+        },
+        "options": {}
+      },
+      "id": "node-explain-handler-reply",
+      "name": "Explain Handler \u2014 Post Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4060,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Q&A Handler: build Ollama request.\n// System prompt is verbatim from the planner. No approval gate (F-17).\nconst data = $json;\n\nconst systemPrompt = `You are a project coordination assistant helping a team member understand their project. Answer questions with project-level context.\n\nMANDATORY RULES:\n1. Do not name or attribute information to any individual team member other than the person asking. The person asking may receive information about their own work area.\n2. Do not disclose what other team members are working on in an attributed way.\n3. If the question asks who specifically is assigned to a work area, provide the work-area context without naming individuals (per SC-03).\n4. Do not produce productivity scores, commit counts attributed to individuals, or hours attributed to individuals.\n5. If you do not know the answer, say so honestly. Do not fabricate.\n6. Keep the response concise \u2014 under 200 words.\n\nThe person asking is: ${data.developer_name}. You may use their name and reference their own work area specifically.`;\n\nconst userMessage = `Developer question: ${data.message_content}\\nProject context: No stored project context available.`;\n\nconst llmRequest = {\n  model: 'llama3',\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userMessage }\n  ],\n  temperature: 0.3,\n  stream: false\n};\n\nreturn [{ json: { ...data, llm_request: llmRequest } }];"
+      },
+      "id": "node-qa-handler-build-prompt",
+      "name": "Q&A Handler \u2014 Build LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.OLLAMA_BASE_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.llm_request) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "node-qa-handler-call-ollama",
+      "name": "Q&A Handler \u2014 Call Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3620,
+        620
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract answer and apply privacy validation.\n// Redact other roster members' names. Allow requesting developer's own name through.\nconst result = $input.first().json;\nconst data = $node['Q&A Handler \u2014 Build LLM Prompt'].json;\nconst rosterNames = data.roster_names || [];\nconst developerName = data.developer_name;\n\nlet answerText = \"I'm temporarily unable to answer \u2014 the reasoning service is offline. Please try again shortly.\";\nif (!result.error && result.choices && result.choices[0]) {\n  answerText = result.choices[0].message.content || answerText;\n}\n\n// Privacy validation: redact other names, keep developer's own name\nfor (const name of rosterNames) {\n  if (!name || name === developerName) continue; // Keep requester's own name\n  const escapedName = name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const regex = new RegExp(`\\\\b${escapedName}\\\\b`, 'gi');\n  answerText = answerText.replace(regex, '[team member]');\n}\n\nreturn [{ json: {\n  reply_text: answerText,\n  dm_channel_id: data.dm_channel_id,\n  developer_discord_id: data.developer_discord_id,\n  message_id: data.message_id\n}}];"
+      },
+      "id": "node-qa-handler-privacy-validate",
+      "name": "Q&A Handler \u2014 Privacy Validation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          {
+            "name": "Authorization",
+            "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.reply_text }}"
+        },
+        "options": {}
+      },
+      "id": "node-qa-handler-post-reply",
+      "name": "Q&A Handler \u2014 Post Reply in DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4060,
+        620
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ 'action_log_dev_dm_' + $json.message_id }},={{ JSON.stringify({ action: 'dev_query_answered', developer_discord_id: $json.developer_discord_id, timestamp: new Date().toISOString() }) }}"
+        },
+        "options": {}
+      },
+      "id": "node-qa-handler-log-action",
+      "name": "Q&A Handler \u2014 Log Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4280,
+        620
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron Trigger \u2014 Every 2 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Load Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Roster": {
+      "main": [
+        [
+          {
+            "node": "Expand Developers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Developers": {
+      "main": [
+        [
+          {
+            "node": "For Each Developer (Split)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For Each Developer (Split)": {
+      "main": [
+        [
+          {
+            "node": "Get or Open DM Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get or Open DM Channel": {
+      "main": [
+        [
+          {
+            "node": "Extract DM Channel ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract DM Channel ID": {
+      "main": [
+        [
+          {
+            "node": "Can Access DM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Can Access DM?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Fetch DM Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch DM Cursor": {
+      "main": [
+        [
+          {
+            "node": "Prepare Fetch Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Fetch Parameters": {
+      "main": [
+        [
+          {
+            "node": "Fetch Unprocessed DM Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Unprocessed DM Messages": {
+      "main": [
+        [
+          {
+            "node": "Filter Developer Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Developer Messages": {
+      "main": [
+        [
+          {
+            "node": "Persist DM Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist DM Cursor": {
+      "main": [
+        [
+          {
+            "node": "For Each Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For Each Message": {
+      "main": [
+        [
+          {
+            "node": "Detect Message Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Message Type": {
+      "main": [
+        [
+          {
+            "node": "Route Message Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Message Type": {
+      "main": [
+        [
+          {
+            "node": "Mute Handler \u2014 Insert Mute",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unmute Handler \u2014 Delete Mute",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Explain Handler \u2014 Parse Subject",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Q&A Handler \u2014 Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mute Handler \u2014 Insert Mute": {
+      "main": [
+        [
+          {
+            "node": "Mute Handler \u2014 Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unmute Handler \u2014 Delete Mute": {
+      "main": [
+        [
+          {
+            "node": "Unmute Handler \u2014 Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Explain Handler \u2014 Parse Subject": {
+      "main": [
+        [
+          {
+            "node": "Explain Handler \u2014 Fetch Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Explain Handler \u2014 Fetch Logs": {
+      "main": [
+        [
+          {
+            "node": "Explain Handler \u2014 Compose Explanation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Explain Handler \u2014 Compose Explanation": {
+      "main": [
+        [
+          {
+            "node": "Explain Handler \u2014 Post Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q&A Handler \u2014 Build LLM Prompt": {
+      "main": [
+        [
+          {
+            "node": "Q&A Handler \u2014 Call Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q&A Handler \u2014 Call Ollama": {
+      "main": [
+        [
+          {
+            "node": "Q&A Handler \u2014 Privacy Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q&A Handler \u2014 Privacy Validation": {
+      "main": [
+        [
+          {
+            "node": "Q&A Handler \u2014 Post Reply in DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q&A Handler \u2014 Post Reply in DM": {
+      "main": [
+        [
+          {
+            "node": "Q&A Handler \u2014 Log Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}
