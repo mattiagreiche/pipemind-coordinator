@@ -1,1 +1,28 @@
 .DS_Store
+
+# =============================================================================
+# Pipemind — gitignore
+# =============================================================================
+
+# Real roster file — must not be committed (SC-19).
+# Use roster.example.yml as the template.
+roster.yml
+
+# Docker volume data directories (if bind-mounted locally for debugging)
+postgres_data/
+n8n_data/
+ollama_models/
+
+# .env is committed because it contains only op:// references (no real secrets).
+# Validate with: grep -v "^#" .env | grep -v "op://" | grep "="  → must be empty.
+# If you accidentally put real values in .env, rotate those credentials immediately.
+# Never commit a file named .env.local or .env.real — add those patterns here:
+.env.local
+.env.real
+.env.*.local
+
+# Editor and OS artifacts
+*.swp
+*.swo
+.idea/
+.vscode/settings.json
