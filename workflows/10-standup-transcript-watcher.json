@@ -1,0 +1,1411 @@
+{
+  "name": "10 \u2014 Standup Transcript Watcher (F-04)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-wf10-cron",
+      "name": "Cron Trigger \u2014 Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load roster.yml \u2014 extract active team members and roster names.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet roster;\ntry {\n  roster = yaml.load(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  throw new Error('Standup Watcher: cannot load roster.yml: ' + e.message);\n}\nconst activeTeam = (roster.team || []).filter(m => m.active !== false);\nconst rosterNames = activeTeam.map(m => m.name).concat([roster.team_lead ? roster.team_lead.name : '']);\nreturn [{\n  json: {\n    team: activeTeam,\n    team_lead_channel_id: roster.team_lead_channel_id,\n    roster_names: rosterNames.filter(Boolean)\n  }\n}];"
+      },
+      "id": "node-wf10-load-roster",
+      "name": "Load Roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verify required env vars.\nconst required = ['DRIVE_FOLDER_ID', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN', 'OLLAMA_BASE_URL'];\nconst missing = required.filter(k => !process.env[k] || process.env[k].trim() === '');\nif (missing.length > 0) {\n  throw new Error('FATAL: Standup Watcher missing env vars: ' + missing.join(', '));\n}\nreturn [{ json: $json }];"
+      },
+      "id": "node-wf10-check-env",
+      "name": "Check Env Vars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://oauth2.googleapis.com/token",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "client_id": "={{ $env.GOOGLE_CLIENT_ID }}",
+          "client_secret": "={{ $env.GOOGLE_CLIENT_SECRET }}",
+          "refresh_token": "={{ $env.GOOGLE_REFRESH_TOKEN }}",
+          "grant_type": "refresh_token"
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-wf10-refresh-token",
+      "name": "Refresh Google Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract access token and carry roster data forward.\nconst tokenResult = $input.first().json;\nconst rosterData = $node['Load Roster'].json;\nif (!tokenResult.access_token) {\n  throw new Error('Standup Watcher: Google token refresh failed: ' + JSON.stringify(tokenResult.error));\n}\nreturn [{\n  json: {\n    access_token: tokenResult.access_token,\n    team: rosterData.team,\n    team_lead_channel_id: rosterData.team_lead_channel_id,\n    roster_names: rosterData.roster_names\n  }\n}];"
+      },
+      "id": "node-wf10-extract-token",
+      "name": "Extract Google Access Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'standup_drive_last_check_timestamp' LIMIT 1",
+        "options": {}
+      },
+      "id": "node-wf10-read-timestamp",
+      "name": "Read Drive Poll Timestamp",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value_json FROM project_memory WHERE key = 'standup_processed_file_ids' LIMIT 1",
+        "options": {}
+      },
+      "id": "node-wf10-read-processed-ids",
+      "name": "Read Processed File IDs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1420,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare last check timestamp and carry all context forward.\nconst tsRow = $node['Read Drive Poll Timestamp'].json;\nconst processedRow = $node['Read Processed File IDs'].json;\nconst accessToken = $node['Extract Google Access Token'].json.access_token;\nconst team = $node['Extract Google Access Token'].json.team;\nconst teamLeadChannelId = $node['Extract Google Access Token'].json.team_lead_channel_id;\nconst rosterNames = $node['Extract Google Access Token'].json.roster_names;\n\nconst lastCheckTs = (tsRow && tsRow.value_json)\n  ? (typeof tsRow.value_json === 'string' ? tsRow.value_json.replace(/^\"|\"$/g, '') : tsRow.value_json)\n  : '2000-01-01T00:00:00Z';\n\nconst processedIds = (processedRow && processedRow.value_json)\n  ? (Array.isArray(processedRow.value_json) ? processedRow.value_json : JSON.parse(processedRow.value_json))\n  : [];\n\nreturn [{\n  json: {\n    access_token: accessToken,\n    team,\n    team_lead_channel_id: teamLeadChannelId,\n    roster_names: rosterNames,\n    last_check_timestamp: lastCheckTs,\n    processed_ids: processedIds\n  }\n}];"
+      },
+      "id": "node-wf10-prepare-query",
+      "name": "Prepare Drive Query Parameters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "='{{ $env.DRIVE_FOLDER_ID }}' in parents and modifiedTime > '{{ $json.last_check_timestamp }}' and trashed=false"
+            },
+            {
+              "name": "fields",
+              "value": "files(id,name,mimeType,modifiedTime,size)"
+            },
+            {
+              "name": "orderBy",
+              "value": "modifiedTime asc"
+            },
+            {
+              "name": "pageSize",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "node-wf10-query-drive",
+      "name": "Query Drive for New Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1860,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('standup_drive_last_check_timestamp', $1::jsonb)\nON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ JSON.stringify(new Date().toISOString()) }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf10-update-timestamp",
+      "name": "Update Drive Poll Timestamp",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2080,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf10-drive-error",
+              "leftValue": "={{ $node['Query Drive for New Files'].json.error !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf10-handle-drive-failure",
+      "name": "Handle Drive API Failure",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $node['Prepare Drive Query Parameters'].json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "Standup watcher: Google Drive API unavailable. Will retry in 15 minutes."
+        },
+        "options": {}
+      },
+      "id": "node-wf10-post-drive-failure",
+      "name": "Post Drive Failure Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2520,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter to unprocessed files; classify by type.\nconst driveResult = $node['Query Drive for New Files'].json;\nconst processedIds = $node['Prepare Drive Query Parameters'].json.processed_ids || [];\nconst files = driveResult.files || [];\n\nconst supported_text = ['text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];\nconst supported_audio = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'audio/x-m4a'];\n\nconst unprocessed = files.filter(f => !processedIds.includes(f.id));\n\nreturn unprocessed.map(f => {\n  let file_class = 'unsupported';\n  if (supported_text.includes(f.mimeType) || f.name.match(/\\.(txt|docx)$/i)) file_class = 'text';\n  else if (supported_audio.includes(f.mimeType) || f.name.match(/\\.(mp3|m4a|wav)$/i)) file_class = 'audio';\n  return {\n    json: {\n      ...f,\n      file_class,\n      access_token: $node['Prepare Drive Query Parameters'].json.access_token,\n      team: $node['Prepare Drive Query Parameters'].json.team,\n      team_lead_channel_id: $node['Prepare Drive Query Parameters'].json.team_lead_channel_id,\n      roster_names: $node['Prepare Drive Query Parameters'].json.roster_names,\n      processed_ids: processedIds,\n      today: new Date().toISOString().slice(0, 10)\n    }\n  };\n});"
+      },
+      "id": "node-wf10-filter-files",
+      "name": "Filter to Unprocessed Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-wf10-for-each-file",
+      "name": "For Each File",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2740,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "sw-wf10-text",
+                    "leftValue": "={{ $json.file_class }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "text"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "sw-wf10-audio",
+                    "leftValue": "={{ $json.file_class }}",
+                    "rightValue": "audio",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "audio"
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "node-wf10-route-file-class",
+      "name": "Route by File Class",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2960,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.id }}?alt=media",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "node-wf10-download-text",
+      "name": "Download Text File Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3180,
+        200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract raw text \u2014 handle plain text vs docx.\n// For docx: attempt mammoth extraction. For plain text: use body directly.\nconst fileData = $node['Route by File Class'].json;\nconst downloadResult = $input.first().json;\n\nif (downloadResult.error) {\n  return [{ json: { ...fileData, raw_text: '', download_error: true } }];\n}\n\nlet rawText = '';\nif (fileData.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {\n  try {\n    const mammoth = require('mammoth');\n    const body = typeof downloadResult === 'string' ? downloadResult : JSON.stringify(downloadResult);\n    const buf = Buffer.from(body, 'base64');\n    const result = await mammoth.extractRawText({ buffer: buf });\n    rawText = result.value || '';\n  } catch (e) {\n    // Mammoth failed \u2014 treat as unsupported\n    return [{ json: { ...fileData, raw_text: '', file_class: 'unsupported', download_error: false } }];\n  }\n} else {\n  // Plain text\n  rawText = typeof downloadResult === 'string' ? downloadResult : JSON.stringify(downloadResult);\n}\n\nreturn [{ json: { ...fileData, raw_text: rawText, download_error: false } }];"
+      },
+      "id": "node-wf10-extract-text",
+      "name": "Extract Raw Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Sanitize file name to prevent prompt injection\nconst rawFileName = $json.name || 'unknown';\nconst safeFileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);\n\n// Assemble Ollama parse request for standup text.\n// System prompt is verbatim from the planner \u2014 do not alter.\nconst data = $json;\nconst rawText = data.raw_text || '';\nconst today = data.today || new Date().toISOString().slice(0, 10);\n\nconst systemPrompt = `You are a project coordination assistant parsing a standup transcript. Extract project-level progress updates.\n\nMANDATORY RULES:\n1. Do NOT attribute any update to a named individual. Convert all speaker-attributed content to work-area level.\n   Example: \"Alice said the auth feature is done\" \u2192 { \"area\": \"auth feature\", \"status_hint\": \"completed\", \"progress_note\": \"Authentication feature completed.\" }\n2. If you cannot determine which work area an update belongs to, place it in unattributed_notes as a project-level sentence.\n3. Do NOT fabricate content. Extract only what is explicitly stated.\n4. Do NOT include any person's name in any output field.\n5. Output ONLY valid JSON \u2014 no prose, no markdown fences:\n{\n  \"updates\": [\n    {\n      \"area\": \"<work area or feature name>\",\n      \"status_hint\": \"<progressing|blocked|completed|unknown>\",\n      \"progress_note\": \"<one sentence, project-level, no names>\",\n      \"has_blocker\": <true|false>,\n      \"blocker_note\": \"<project-level blocker description or null>\"\n    }\n  ],\n  \"unattributed_notes\": [\"<project-level note>\"],\n  \"parse_quality\": \"<good|partial|poor>\"\n}\nIf the transcript is garbled, partial, or unattributable (F-04.3), set parse_quality to \"partial\" or \"poor\" and extract only what is reliable. Do not fabricate.`;\n\nconst userMessage = `Standup transcript (date: ${today}, file: ${safeFileName}):\\n\\n<transcript>\\n${rawText}\\n</transcript>\\n\\nExtract project-level updates. No individual names in output.`;\n\nconst llmRequest = {\n  model: 'llama3',\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userMessage }\n  ],\n  temperature: 0.1,\n  stream: false\n};\n\nreturn [{ json: { ...data, llm_request: llmRequest } }];"
+      },
+      "id": "node-wf10-build-parse-prompt",
+      "name": "Build Standup Parse Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.OLLAMA_BASE_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.llm_request) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "node-wf10-call-ollama-parse",
+      "name": "Parse Standup Text \u2014 Call Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Ollama response for standup text extraction.\nconst result = $input.first().json;\nconst data = $node['Build Standup Parse Prompt'].json;\n\nlet updates = [];\nlet unattributedNotes = [];\nlet parseQuality = 'failed';\n\nif (!result.error && result.choices && result.choices[0]) {\n  try {\n    let raw = result.choices[0].message.content.trim();\n    raw = raw.replace(/^```json\\s*/i, '').replace(/\\s*```$/, '');\n    const parsed = JSON.parse(raw);\n    updates = parsed.updates || [];\n    unattributedNotes = parsed.unattributed_notes || [];\n    parseQuality = parsed.parse_quality || 'good';\n  } catch (e) {\n    updates = [];\n    unattributedNotes = ['Transcript parse failed \u2014 JSON parse error.'];\n    parseQuality = 'failed';\n  }\n} else {\n  unattributedNotes = ['Transcript parse failed \u2014 LLM error.'];\n}\n\nreturn [{\n  json: {\n    ...data,\n    updates,\n    unattributed_notes: unattributedNotes,\n    parse_quality: parseQuality\n  }\n}];"
+      },
+      "id": "node-wf10-parse-ollama-response",
+      "name": "Parse Standup LLM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4060,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Standup watcher: audio file '{{ $json.name }}' skipped \u2014 Whisper transcription service unavailable ({{ $env.WHISPER_BASE_URL }}/healthz). Resolve the service and re-drop the file or re-trigger manually."
+        },
+        "options": {}
+      },
+      "id": "node-wf10-whisper-unavailable-notice",
+      "name": "Post Whisper Unavailable Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3180,
+        480
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WHISPER_BASE_URL }}/healthz",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "node-wf10-check-whisper",
+      "name": "Check Whisper Availability",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3180,
+        600
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf10-whisper-ok",
+              "leftValue": "={{ $json.error !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf10-route-whisper-ok",
+      "name": "Whisper Unavailable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Whisper unavailable \u2014 set empty result to continue to mark-processed step.\nconst fileData = $node['Route by File Class'].json;\nreturn [{ json: { ...fileData, updates: [], unattributed_notes: [], parse_quality: 'whisper_unavailable', skip_wf09: true } }];"
+      },
+      "id": "node-wf10-whisper-unavailable-skip",
+      "name": "Mark Whisper Skip Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $node['Route by File Class'].json.id }}?alt=media",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $node['Route by File Class'].json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "node-wf10-download-audio",
+      "name": "Download Audio File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3620,
+        700
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WHISPER_BASE_URL }}/asr",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "audio_file",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "task",
+              "value": "transcribe"
+            },
+            {
+              "name": "language",
+              "value": "en"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "node-wf10-transcribe-whisper",
+      "name": "Transcribe via Whisper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        700
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract transcribed text from Whisper response.\nconst whisperResult = $input.first().json;\nconst fileData = $node['Route by File Class'].json;\n\nif (whisperResult.error || !whisperResult.text) {\n  return [{ json: { ...fileData, raw_text: '', transcription_failed: true } }];\n}\n\nreturn [{ json: { ...fileData, raw_text: whisperResult.text, transcription_failed: false } }];"
+      },
+      "id": "node-wf10-extract-whisper-text",
+      "name": "Extract Whisper Transcribed Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4060,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Standup watcher: unsupported file format skipped \u2014 '{{ $json.name }}' (MIME: {{ $json.mimeType }}). Drop a .txt, .docx, .mp3, .m4a, or .wav file instead. (F-04.5)"
+        },
+        "options": {}
+      },
+      "id": "node-wf10-log-unsupported",
+      "name": "Log Unsupported File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3180,
+        900
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Write standup-heard records.\n// raw_text is used ONLY here for roster name matching. It is never written to Postgres.\n// Only discord_ids (not names, not content) are stored in standup_heard_*.\nconst data = $json;\nconst rawText = data.raw_text || '';\nconst rosterTeam = data.team || [];\nconst today = data.today || new Date().toISOString().slice(0, 10);\nconst heardIds = [];\n\nfor (const member of rosterTeam) {\n  const firstName = member.name.split(' ')[0];\n  const re = new RegExp('\\\\b' + firstName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\\\b', 'i');\n  if (re.test(rawText)) {\n    heardIds.push(member.discord_id);\n  }\n}\n\nreturn [{ json: { ...data, today, heard_ids: heardIds } }];"
+      },
+      "id": "node-wf10-build-heard-records",
+      "name": "Build Standup-Heard Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('standup_heard_' || $1, $2::jsonb)\nON CONFLICT (key) DO UPDATE\n  SET value_json = (\n    SELECT jsonb_agg(DISTINCT elem)\n    FROM jsonb_array_elements_text(\n      project_memory.value_json || EXCLUDED.value_json\n    ) AS elem\n  ),\n  updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.today, JSON.stringify($json.heard_ids)] }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf10-write-heard",
+      "name": "Write Standup-Heard to Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4720,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mark file as processed \u2014 keep last 500 IDs to prevent unbounded growth.\nconst fileId = $json.id;\nconst processed = $json.processed_ids || [];\nconst updated = [...processed];\nif (!updated.includes(fileId)) updated.push(fileId);\nconst trimmed = updated.slice(-500);\nreturn [{ json: { ...($json), file_ids: trimmed } }];"
+      },
+      "id": "node-wf10-prep-mark-processed",
+      "name": "Prepare Mark File as Processed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4940,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json)\nVALUES ('standup_processed_file_ids', $1::jsonb)\nON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ JSON.stringify($json.file_ids) }}"
+        },
+        "options": {}
+      },
+      "id": "node-wf10-mark-processed",
+      "name": "Mark File as Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        5160,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf10-call-wf09",
+              "leftValue": "={{ $json.updates !== undefined && $json.updates.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf10-route-call-wf09",
+      "name": "Route: Call Workflow 09?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        5380,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "value": "WORKFLOW_09_ID"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "standup_date": "={{ $json.today }}",
+            "parsed_updates": "={{ $json.updates }}",
+            "unattributed_notes": "={{ $json.unattributed_notes }}",
+            "roster_names": "={{ $json.roster_names }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "node-wf10-call-wf09",
+      "name": "Call Workflow 09 \u2014 Update Project Picture",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        5600,
+        300
+      ],
+      "notes": "Replace WORKFLOW_09_ID with the actual n8n ID of workflow 09 after import."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-wf10-wf09-failed",
+              "leftValue": "={{ $json.success === false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-wf10-handle-wf09-failure",
+      "name": "Handle Workflow 09 Failure",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        5820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $node['Prepare Drive Query Parameters'].json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Standup watcher: project picture update failed. Reason: {{ $json.reason }}. The file has been marked as processed. Re-trigger Workflow 09 manually or re-process the transcript."
+        },
+        "options": {}
+      },
+      "id": "node-wf10-post-wf09-failure",
+      "name": "Post Workflow 09 Failure Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6040,
+        200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "id": "wf10-transcription-failed-if",
+      "name": "Transcription Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4280,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-transcription-failed",
+              "leftValue": "={{ $json.transcription_failed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "wf10-post-transcription-failure",
+      "name": "Post Transcription Failure Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4500,
+        600
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Load Roster').first().json.team_lead_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ content: \"Standup watcher: audio transcription failed for file '\" + $json.name + \"'. Whisper returned an error. The file has been marked processed \u2014 re-drop the audio file to retry. (F-04.2)\" }) }}",
+        "options": {
+          "timeout": 10000
+        },
+        "continueOnFail": true
+      }
+    }
+  ],
+  "connections": {
+    "Cron Trigger \u2014 Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Load Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Roster": {
+      "main": [
+        [
+          {
+            "node": "Check Env Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Env Vars": {
+      "main": [
+        [
+          {
+            "node": "Refresh Google Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh Google Token": {
+      "main": [
+        [
+          {
+            "node": "Extract Google Access Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Google Access Token": {
+      "main": [
+        [
+          {
+            "node": "Read Drive Poll Timestamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Drive Poll Timestamp": {
+      "main": [
+        [
+          {
+            "node": "Read Processed File IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Processed File IDs": {
+      "main": [
+        [
+          {
+            "node": "Prepare Drive Query Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Drive Query Parameters": {
+      "main": [
+        [
+          {
+            "node": "Query Drive for New Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Drive for New Files": {
+      "main": [
+        [
+          {
+            "node": "Update Drive Poll Timestamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Drive Poll Timestamp": {
+      "main": [
+        [
+          {
+            "node": "Handle Drive API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Drive API Failure": {
+      "main": [
+        [
+          {
+            "node": "Post Drive Failure Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Filter to Unprocessed Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter to Unprocessed Files": {
+      "main": [
+        [
+          {
+            "node": "For Each File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For Each File": {
+      "main": [
+        [
+          {
+            "node": "Route by File Class",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by File Class": {
+      "main": [
+        [
+          {
+            "node": "Download Text File Content",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Whisper Availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Unsupported File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Text File Content": {
+      "main": [
+        [
+          {
+            "node": "Extract Raw Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Raw Text": {
+      "main": [
+        [
+          {
+            "node": "Build Standup Parse Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standup Parse Prompt": {
+      "main": [
+        [
+          {
+            "node": "Parse Standup Text \u2014 Call Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Standup Text \u2014 Call Ollama": {
+      "main": [
+        [
+          {
+            "node": "Parse Standup LLM Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Standup LLM Response": {
+      "main": [
+        [
+          {
+            "node": "Build Standup-Heard Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Whisper Availability": {
+      "main": [
+        [
+          {
+            "node": "Whisper Unavailable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Whisper Unavailable?": {
+      "main": [
+        [
+          {
+            "node": "Post Whisper Unavailable Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download Audio File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Whisper Unavailable Notice": {
+      "main": [
+        [
+          {
+            "node": "Mark Whisper Skip Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Whisper Skip Result": {
+      "main": [
+        [
+          {
+            "node": "Prepare Mark File as Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Audio File": {
+      "main": [
+        [
+          {
+            "node": "Transcribe via Whisper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe via Whisper": {
+      "main": [
+        [
+          {
+            "node": "Extract Whisper Transcribed Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Whisper Transcribed Text": {
+      "main": [
+        [
+          {
+            "node": "Transcription Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Unsupported File": {
+      "main": [
+        [
+          {
+            "node": "Prepare Mark File as Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standup-Heard Records": {
+      "main": [
+        [
+          {
+            "node": "Write Standup-Heard to Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Standup-Heard to Postgres": {
+      "main": [
+        [
+          {
+            "node": "Route: Call Workflow 09?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Mark File as Processed": {
+      "main": [
+        [
+          {
+            "node": "Mark File as Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark File as Processed": {
+      "main": [
+        [
+          {
+            "node": "For Each File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route: Call Workflow 09?": {
+      "main": [
+        [
+          {
+            "node": "Call Workflow 09 \u2014 Update Project Picture",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Mark File as Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Workflow 09 \u2014 Update Project Picture": {
+      "main": [
+        [
+          {
+            "node": "Handle Workflow 09 Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Workflow 09 Failure": {
+      "main": [
+        [
+          {
+            "node": "Post Workflow 09 Failure Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Mark File as Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Workflow 09 Failure Notice": {
+      "main": [
+        [
+          {
+            "node": "Prepare Mark File as Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcription Failed?": {
+      "main": [
+        [
+          {
+            "node": "Post Transcription Failure Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Standup Parse Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Transcription Failure Notice": {
+      "main": [
+        [
+          {
+            "node": "Prepare Mark File as Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "id": "WF_10"
+}
