@@ -49,7 +49,9 @@
             { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "report",   "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "report" },
             { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "qa_reply", "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "qa_reply" },
             { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "welcome",     "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "welcome" },
-            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "time_entry", "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "time_entry" }
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "time_entry",     "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "time_entry" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "colleague_dm",   "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "colleague_dm" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.content_type }}", "rightValue": "calendar_event", "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "calendar_event" }
           ]
         }
       }
@@ -466,6 +468,302 @@
       "typeVersion": 1,
       "position": [500, 500],
       "parameters": {}
+    },
+
+    {
+      "id": "dedup-colleague-dm",
+      "name": "Dedup Colleague DM",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1000, 1050],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT action_id FROM pipemind.delivered_actions WHERE dedup_key = $1;",
+        "additionalFields": {
+          "queryParams": "={{ [ 'discord_colleague_dm:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-colleague-dm-new",
+      "name": "Colleague DM Not Yet Sent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 1050],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "open-dm-to-colleague",
+      "name": "Open DM to Colleague",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1500, 1000],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ recipient_id: $('Fetch Approved Draft').item.json.context_json.colleague_discord_id }) }}"
+      }
+    },
+    {
+      "id": "send-colleague-dm-delivery",
+      "name": "Send Colleague DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1750, 1000],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$json.id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: $('Fetch Approved Draft').item.json.final_text }) }}"
+      }
+    },
+    {
+      "id": "if-colleague-dm-ok",
+      "name": "If Colleague DM OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2000, 1000],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.id }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }]
+        }
+      }
+    },
+    {
+      "id": "log-colleague-dm-delivered",
+      "name": "Log Colleague DM Delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2250, 950],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_colleague_dm', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_colleague_dm:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "notify-colleague-dm-failed",
+      "name": "Notify Colleague DM Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2250, 1100],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Fetch Approved Draft').item.json.discord_channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] I was unable to reach your teammate. You may want to contact them directly.' }) }}"
+      }
+    },
+
+    {
+      "id": "dedup-calendar-event",
+      "name": "Dedup Calendar Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1000, 1300],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT action_id FROM pipemind.delivered_actions WHERE dedup_key = $1;",
+        "additionalFields": {
+          "queryParams": "={{ [ 'calendar_event_create:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-calendar-new",
+      "name": "Calendar Not Yet Created?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1250, 1300],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "parse-calendar-context",
+      "name": "Parse Calendar Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 1250],
+      "parameters": {
+        "jsCode": "const draft = $('Fetch Approved Draft').item.json;\nconst ctx = typeof draft.context_json === 'object' ? draft.context_json : {};\nreturn [{ json: {\n  draft_id:        draft.draft_id,\n  channel_id:      draft.discord_channel_id,\n  start_iso:       ctx.start_iso ?? null,\n  end_iso:         ctx.end_iso ?? null,\n  feature_area:    String(ctx.feature_area ?? 'Focus session').slice(0, 80),\n  calendar_email:  ctx.calendar_email ?? ''\n}}];"
+      }
+    },
+    {
+      "id": "if-calendar-email-set",
+      "name": "If Calendar Email Set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1750, 1250],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.calendar_email }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }]
+        }
+      }
+    },
+    {
+      "id": "create-calendar-event",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 1200],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "authentication": "oAuth2",
+        "credential": { "id": "pipemindGoogleCalendar", "name": "Pipemind Google Calendar" },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ summary: 'Focus session — ' + $json.feature_area, start: { dateTime: $json.start_iso }, end: { dateTime: $json.end_iso } }) }}"
+      }
+    },
+    {
+      "id": "if-calendar-ok",
+      "name": "If Calendar OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2250, 1200],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.id }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }]
+        }
+      }
+    },
+    {
+      "id": "log-calendar-event-delivered",
+      "name": "Log Calendar Event Delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2500, 1150],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'calendar_event_create', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Parse Calendar Context').item.json.draft_id, 'calendar_event_create:' + $('Parse Calendar Context').item.json.draft_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "confirm-calendar-dm",
+      "name": "Confirm Calendar DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2750, 1150],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').item.json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Done — your calendar block has been created for ' + $('Parse Calendar Context').item.json.feature_area + '.' }) }}"
+      }
+    },
+    {
+      "id": "notify-calendar-failed-dm",
+      "name": "Notify Calendar Failed DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 1300],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').item.json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] I was unable to create the calendar block. Please create it manually in Google Calendar.' }) }}"
+      }
+    },
+    {
+      "id": "mark-offer-colleague-done",
+      "name": "Mark Offer Colleague Done",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2500, 950],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers SET status = 'colleague_done', updated_at = now()\nWHERE draft_id = $1::uuid AND status = 'colleague_draft_pending';",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "mark-offer-meeting-done",
+      "name": "Mark Offer Meeting Done",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2750, 1150],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers SET status = 'meeting_done', updated_at = now()\nWHERE draft_id = $1::uuid AND status = 'meeting_draft_pending';",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Fetch Approved Draft').item.json.draft_id ] }}"
+        }
+      },
+      "continueOnFail": true
+    },
+
+    {
+      "id": "notify-no-calendar-email-dm",
+      "name": "Notify No Calendar Email DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 1400],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] No calendar linked for your account — please create the block manually in Google Calendar.' }) }}"
+      }
     }
   ],
   "connections": {
@@ -476,10 +774,12 @@
       [{ "node": "Skip — Draft Not Found",  "type": "main", "index": 0 }]
     ]},
     "Route by Content Type": {
-      "report":     [[{ "node": "Dedup Drive",      "type": "main", "index": 0 }]],
-      "qa_reply":   [[{ "node": "Dedup Discord QA", "type": "main", "index": 0 }]],
-      "welcome":    [[{ "node": "Dedup Welcome",    "type": "main", "index": 0 }]],
-      "time_entry": [[{ "node": "Dedup Clockify",   "type": "main", "index": 0 }]]
+      "report":        [[{ "node": "Dedup Drive",         "type": "main", "index": 0 }]],
+      "qa_reply":      [[{ "node": "Dedup Discord QA",    "type": "main", "index": 0 }]],
+      "welcome":       [[{ "node": "Dedup Welcome",       "type": "main", "index": 0 }]],
+      "time_entry":    [[{ "node": "Dedup Clockify",      "type": "main", "index": 0 }]],
+      "colleague_dm":  [[{ "node": "Dedup Colleague DM",  "type": "main", "index": 0 }]],
+      "calendar_event":[[{ "node": "Dedup Calendar Event","type": "main", "index": 0 }]]
     },
     "Dedup Clockify":          { "main": [[{ "node": "Clockify Not Yet Written?",  "type": "main", "index": 0 }]] },
     "Clockify Not Yet Written?": { "main": [
@@ -521,7 +821,38 @@
     ]},
     "Validate Welcome Channel":{ "main": [[{ "node": "Post Welcome",            "type": "main", "index": 0 }]] },
     "Post Welcome":           { "main": [[{ "node": "Log Welcome Delivered",    "type": "main", "index": 0 }]] },
-    "Log Welcome Delivered":  { "main": [[{ "node": "Log Client Welcomed",      "type": "main", "index": 0 }]] }
+    "Log Welcome Delivered":  { "main": [[{ "node": "Log Client Welcomed",      "type": "main", "index": 0 }]] },
+
+    "Dedup Colleague DM":         { "main": [[{ "node": "Colleague DM Not Yet Sent?",  "type": "main", "index": 0 }]] },
+    "Colleague DM Not Yet Sent?": { "main": [
+      [{ "node": "Open DM to Colleague",          "type": "main", "index": 0 }],
+      []
+    ]},
+    "Open DM to Colleague":       { "main": [[{ "node": "Send Colleague DM",           "type": "main", "index": 0 }]] },
+    "Send Colleague DM":          { "main": [[{ "node": "If Colleague DM OK?",         "type": "main", "index": 0 }]] },
+    "If Colleague DM OK?":        { "main": [
+      [{ "node": "Log Colleague DM Delivered",    "type": "main", "index": 0 }],
+      [{ "node": "Notify Colleague DM Failed",    "type": "main", "index": 0 }]
+    ]},
+    "Log Colleague DM Delivered": { "main": [[{ "node": "Mark Offer Colleague Done",   "type": "main", "index": 0 }]] },
+
+    "Dedup Calendar Event":       { "main": [[{ "node": "Calendar Not Yet Created?",   "type": "main", "index": 0 }]] },
+    "Calendar Not Yet Created?":  { "main": [
+      [{ "node": "Parse Calendar Context",        "type": "main", "index": 0 }],
+      []
+    ]},
+    "Parse Calendar Context":     { "main": [[{ "node": "If Calendar Email Set?",      "type": "main", "index": 0 }]] },
+    "If Calendar Email Set?":     { "main": [
+      [{ "node": "Create Calendar Event",         "type": "main", "index": 0 }],
+      [{ "node": "Notify No Calendar Email DM",   "type": "main", "index": 0 }]
+    ]},
+    "Create Calendar Event":      { "main": [[{ "node": "If Calendar OK?",             "type": "main", "index": 0 }]] },
+    "If Calendar OK?":            { "main": [
+      [{ "node": "Log Calendar Event Delivered",  "type": "main", "index": 0 }],
+      [{ "node": "Notify Calendar Failed DM",     "type": "main", "index": 0 }]
+    ]},
+    "Log Calendar Event Delivered":{ "main": [[{ "node": "Mark Offer Meeting Done",     "type": "main", "index": 0 }]] },
+    "Mark Offer Meeting Done":    { "main": [[{ "node": "Confirm Calendar DM",         "type": "main", "index": 0 }]] }
   },
   "active": true,
   "settings": { "executionOrder": "v1" },

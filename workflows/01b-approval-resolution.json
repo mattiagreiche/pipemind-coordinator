@@ -19,7 +19,7 @@
       "typeVersion": 2,
       "position": [250, 300],
       "parameters": {
-        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '✅': 'approve', '✏️': 'edit', '❌': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text reply (edit flow)\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  if (!referenced_id) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'message',\n    action: 'edit_reply',\n    message_id: referenced_id,\n    reply_id: d.id,\n    actor_discord_id: d.author?.id,\n    channel_id: d.channel_id,\n    content: d.content\n  }}];\n}\n\nreturn [{ json: { skip: true } }];"
+        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '✅': 'approve', '✏️': 'edit', '❌': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text message event\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  const content = (d.content ?? '').trim();\n  const discord_id = d.author?.id;\n  const channel_id = d.channel_id;\n\n  // Thread-reply (edit flow) — must check before F-06 command detection\n  if (referenced_id) {\n    return [{ json: {\n      skip: false,\n      eventType: 'message',\n      action: 'edit_reply',\n      message_id: referenced_id,\n      reply_id: d.id,\n      actor_discord_id: discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  // F-06 fixed command detection — plain DM with no referenced message\n  const FIXED_COMMANDS = ['yes', 'no', 'colleague', 'meeting', 'just-talk'];\n  const lower = content.toLowerCase();\n\n  if (lower === 'yes') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_yes',\n      raw_action: 'unblock_yes',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'no') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_no',\n      raw_action: 'unblock_no',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'colleague') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_colleague',\n      raw_action: 'unblock_colleague',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'meeting') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_meeting',\n      raw_action: 'unblock_meeting',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'just-talk') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_just_talk',\n      raw_action: 'unblock_just_talk',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'cancel') {\n    return [{ json: { skip: true } }];\n  }\n\n  // Non-command plain text — may be a free-text reply for colleague_pending / meeting_pending\n  if (content.length > 0) {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_free_text',\n      action: 'unblock_free_text',\n      raw_action: 'unblock_free_text',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n}\n\nreturn [{ json: { skip: true } }];"
       }
     },
     {
@@ -35,11 +35,23 @@
       }
     },
     {
+      "id": "route-f06",
+      "name": "Route F-06?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [750, 400],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ ['f06_command','f06_free_text'].includes($json.eventType) }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
       "id": "lookup-draft",
       "name": "Lookup Draft",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [750, 200],
+      "position": [1000, 200],
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
@@ -54,7 +66,7 @@
       "name": "Pending & Right Actor?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1000, 200],
+      "position": [1250, 200],
       "parameters": {
         "conditions": {
           "combinator": "and",
@@ -70,7 +82,7 @@
       "name": "Expired?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1250, 100],
+      "position": [1500, 100],
       "parameters": {
         "conditions": {
           "conditions": [{ "leftValue": "={{ new Date($json.expires_at) < new Date() }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
@@ -82,7 +94,7 @@
       "name": "Notify Expired",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1500, 0],
+      "position": [1750, 0],
       "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
       "parameters": {
         "operation": "sendMessage",
@@ -95,7 +107,7 @@
       "name": "Route Action",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
-      "position": [1500, 250],
+      "position": [1750, 250],
       "parameters": {
         "mode": "rules",
         "rules": {
@@ -113,7 +125,7 @@
       "name": "Mark Approved",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1750, 50],
+      "position": [2000, 50],
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
@@ -128,7 +140,7 @@
       "name": "Got Approval Lock?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2000, 50],
+      "position": [2250, 50],
       "parameters": {
         "conditions": {
           "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
@@ -140,7 +152,7 @@
       "name": "Call Delivery Executor",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [2250, 50],
+      "position": [2500, 50],
       "parameters": {
         "options": { "workflowName": "01c — F-03: Delivery Executor (Sub-Workflow)" },
         "mode": "each",
@@ -154,7 +166,7 @@
       "name": "Mark Rejected",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1750, 250],
+      "position": [2000, 250],
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
@@ -169,7 +181,7 @@
       "name": "Notify Rejected",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [2000, 250],
+      "position": [2250, 250],
       "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
       "parameters": {
         "operation": "sendMessage",
@@ -182,7 +194,7 @@
       "name": "Prompt for Edit",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1750, 450],
+      "position": [2000, 450],
       "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
       "parameters": {
         "operation": "sendMessage",
@@ -195,9 +207,9 @@
       "name": "Sanitize Edit Content",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1750, 650],
+      "position": [2000, 650],
       "parameters": {
-        "jsCode": "const evt = $('Classify Event').item.json;\nconst draft = $('Lookup Draft').item.json;\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content — strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, reply_message_id: evt.reply_id, draft_id: draft.draft_id } }];"
+        "jsCode": "const evt = $('Classify Event').item.json;\nconst draft = $('Lookup Draft').item.json;\n\n// Block edit path for colleague_dm — approver is requester, edit would allow social-engineering text\nif (draft.content_type === 'colleague_dm') {\n  return [{ json: { skip: true } }];\n}\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content — strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, reply_message_id: evt.reply_id, draft_id: draft.draft_id } }];"
       }
     },
     {
@@ -205,7 +217,7 @@
       "name": "Edit Author Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2000, 650],
+      "position": [2250, 650],
       "parameters": {
         "conditions": {
           "conditions": [{ "leftValue": "={{ $json.skip }}", "rightValue": false, "operator": { "type": "boolean", "operation": "equals" } }]
@@ -217,7 +229,7 @@
       "name": "Save Edited Text",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2250, 600],
+      "position": [2500, 600],
       "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
       "parameters": {
         "operation": "executeQuery",
@@ -234,6 +246,730 @@
       "typeVersion": 1,
       "position": [500, 500],
       "parameters": {}
+    },
+
+    {
+      "id": "verify-f06-sender",
+      "name": "Verify F-06 Sender",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, 600],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT discord_id FROM pipemind.roster WHERE discord_id = $1 AND active = TRUE AND role = 'developer' LIMIT 1;",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "if-f06-sender-valid",
+      "name": "If F-06 Sender Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [875, 600],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length > 0 && $input.first().json.discord_id !== null }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+
+    {
+      "id": "f06-route-switch",
+      "name": "F-06 Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1000, 600],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.raw_action }}", "rightValue": "unblock_yes",       "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "unblock_yes" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.raw_action }}", "rightValue": "unblock_no",        "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "unblock_no" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.raw_action }}", "rightValue": "unblock_colleague",  "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "unblock_colleague" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.raw_action }}", "rightValue": "unblock_meeting",    "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "unblock_meeting" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.raw_action }}", "rightValue": "unblock_just_talk",  "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "unblock_just_talk" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $('Classify Event').item.json.raw_action }}", "rightValue": "unblock_free_text",  "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "unblock_free_text" }
+          ]
+        }
+      }
+    },
+
+    {
+      "id": "lookup-offer-yes",
+      "name": "Lookup Unblock Offer (yes)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 400],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT offer_id, dm_channel_id, feature_area, status\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'pending'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "if-active-offer-yes",
+      "name": "If Active Offer (yes)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1500, 400],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "mark-offer-accepted",
+      "name": "Mark Offer Accepted",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 350],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'accepted', responded_at = now()\nWHERE offer_id = $1 AND status = 'pending'",
+        "additionalFields": {
+          "queryParams": "={{ [ $json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "send-help-menu-dm",
+      "name": "Send Help Menu DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 350],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Unblock Offer (yes)').item.json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "[Pipemind] Great — how would you like to proceed?\n\nReply with one of:\n• colleague — loop in a teammate who might be able to help\n• meeting — schedule a short focus or pairing session\n• just-talk — I will note that you accepted help; no further action needed"
+        }
+      }
+    },
+    {
+      "id": "mark-help-menu-sent",
+      "name": "Mark Help Menu Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2250, 350],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'help_menu_sent', updated_at = now()\nWHERE offer_id = $1 AND status = 'accepted'",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Lookup Unblock Offer (yes)').item.json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+
+    {
+      "id": "lookup-offer-no",
+      "name": "Lookup Unblock Offer (no)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 550],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT offer_id, dm_channel_id, feature_area, status\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'pending'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "if-active-offer-no",
+      "name": "If Active Offer (no)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1500, 550],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "mark-offer-declined",
+      "name": "Mark Offer Declined",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 500],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'declined', responded_at = now()\nWHERE offer_id = $1 AND status = 'pending'",
+        "additionalFields": {
+          "queryParams": "={{ [ $json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+
+    {
+      "id": "lookup-offer-colleague",
+      "name": "Lookup Offer for Colleague",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 700],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT offer_id, dm_channel_id, feature_area\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'help_menu_sent'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "if-active-offer-colleague",
+      "name": "If Active Offer (colleague)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1500, 700],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "send-colleague-prompt-dm",
+      "name": "Send Colleague Prompt DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1750, 650],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "[Pipemind] Who would you like to loop in? Reply with their name or describe who is working on the area you need help with. Reply cancel to stop."
+        }
+      }
+    },
+    {
+      "id": "mark-colleague-pending",
+      "name": "Mark Colleague Pending",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 650],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'colleague_pending', updated_at = now()\nWHERE offer_id = $1 AND status = 'help_menu_sent'",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Lookup Offer for Colleague').item.json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+
+    {
+      "id": "lookup-offer-meeting",
+      "name": "Lookup Offer for Meeting",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 850],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT offer_id, dm_channel_id, feature_area\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'help_menu_sent'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "if-active-offer-meeting",
+      "name": "If Active Offer (meeting)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1500, 850],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "send-meeting-prompt-dm",
+      "name": "Send Meeting Prompt DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1750, 800],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "[Pipemind] What time would you like to block? Reply with a time range, e.g. \"14:00-15:00 today\" or \"09:00-09:30 tomorrow\". Reply cancel to stop."
+        }
+      }
+    },
+    {
+      "id": "mark-meeting-pending",
+      "name": "Mark Meeting Pending",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 800],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'meeting_pending', updated_at = now()\nWHERE offer_id = $1 AND status = 'help_menu_sent'",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Lookup Offer for Meeting').item.json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+
+    {
+      "id": "lookup-offer-just-talk",
+      "name": "Lookup Offer for Just Talk",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 1000],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT offer_id, dm_channel_id, feature_area\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'help_menu_sent'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "if-active-offer-just-talk",
+      "name": "If Active Offer (just-talk)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1500, 1000],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "mark-just-talk",
+      "name": "Mark Just Talk",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1750, 950],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'just_talk', responded_at = now()\nWHERE offer_id = $1 AND status = 'help_menu_sent'",
+        "additionalFields": {
+          "queryParams": "={{ [ $json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "send-just-talk-confirmation-dm",
+      "name": "Send Just Talk Confirmation DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 950],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Offer for Just Talk').item.json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "[Pipemind] Noted. Reach out any time if you need anything."
+        }
+      }
+    },
+
+    {
+      "id": "lookup-offer-free-text",
+      "name": "Lookup Offer for Free Text",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 1150],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT uo.offer_id, uo.dm_channel_id, uo.feature_area, uo.status, r.calendar_email AS requester_calendar_email\nFROM pipemind.unblock_offers uo\nJOIN pipemind.roster r ON r.discord_id = uo.discord_id\nWHERE uo.discord_id = $1\n  AND uo.status IN ('colleague_pending', 'meeting_pending')\n  AND uo.offer_date = CURRENT_DATE\nORDER BY uo.created_at DESC LIMIT 1",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "if-active-offer-free-text",
+      "name": "If Active Offer (free-text)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1500, 1150],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "branch-colleague-or-meeting",
+      "name": "If Colleague or Meeting?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1750, 1100],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.status }}", "rightValue": "colleague_pending", "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "colleague_pending" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.status }}", "rightValue": "meeting_pending",   "operator": { "type": "string", "operation": "equals" } }] }, "outputKey": "meeting_pending" }
+          ]
+        }
+      }
+    },
+
+    {
+      "id": "resolve-colleague-from-roster",
+      "name": "Resolve Colleague from Roster",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 1000],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT discord_id AS colleague_discord_id, name, calendar_email AS colleague_calendar_email, clockify_user_id AS colleague_clockify_user_id\nFROM pipemind.roster\nWHERE active = TRUE AND role = 'developer'\n  AND LOWER(name) LIKE LOWER('%' || $1 || '%')\n  AND discord_id != $2\nLIMIT 1",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Classify Event').item.json.content, $('Classify Event').item.json.discord_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "if-colleague-found",
+      "name": "If Colleague Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2250, 1000],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $input.all().length }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        }
+      }
+    },
+    {
+      "id": "send-colleague-not-found-dm",
+      "name": "Send Colleague Not Found DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 1100],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Offer for Free Text').item.json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "[Pipemind] I could not find a teammate by that name. Try again or reply cancel."
+        }
+      }
+    },
+    {
+      "id": "check-colleague-scheduled",
+      "name": "Check Colleague Scheduled",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 900],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/time-off/requests",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "X-Api-Key", "value": "={{ $env.CLOCKIFY_API_KEY }}" }]
+        },
+        "sendQueryParameters": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "userId", "value": "={{ $json.colleague_clockify_user_id }}" },
+            { "name": "start",  "value": "={{ new Date().toISOString().split('T')[0] + 'T00:00:00Z' }}" },
+            { "name": "end",    "value": "={{ new Date().toISOString().split('T')[0] + 'T23:59:59Z' }}" },
+            { "name": "status", "value": "APPROVED" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "if-colleague-scheduled",
+      "name": "If Colleague Scheduled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2750, 900],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.statusCode === 200 && ($json.body?.length ?? 0) === 0 }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "send-colleague-unavailable-dm",
+      "name": "Send Colleague Unavailable DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3000, 1000],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Offer for Free Text').item.json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "[Pipemind] That teammate does not appear to be available today. I cannot reach out to them right now."
+        }
+      }
+    },
+    {
+      "id": "mark-colleague-unavailable",
+      "name": "Mark Colleague Unavailable",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3250, 1000],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'colleague_unavailable', updated_at = now()\nWHERE offer_id = $1",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Lookup Offer for Free Text').item.json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "create-colleague-draft",
+      "name": "Create Colleague Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3000, 800],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.approval_drafts\n  (approver_discord_id, discord_channel_id, feature_tag, content_type, draft_text, context_json, expires_at, boundary_audit_passed)\nVALUES\n  ($1, $2, 'F-06', 'colleague_dm',\n   '[Pipemind] A teammate could use a hand with ' || $3 || '. Are you available to connect with them today?',\n   jsonb_build_object('colleague_discord_id', $4, 'feature_area', $3, 'offer_id', $5::text),\n   now() + INTERVAL '48 hours',\n   TRUE)\nRETURNING draft_id;",
+        "additionalFields": {
+          "queryParams": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $('Lookup Offer for Free Text').item.json.dm_channel_id,\n  $('Lookup Offer for Free Text').item.json.feature_area,\n  $('Resolve Colleague from Roster').item.json.colleague_discord_id,\n  $('Lookup Offer for Free Text').item.json.offer_id\n] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "send-colleague-draft-dm",
+      "name": "Send Colleague Draft DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3250, 800],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Offer for Free Text').item.json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ '[Pipemind] Draft: A teammate could use a hand with ' + $('Lookup Offer for Free Text').item.json.feature_area + '. Are you available to connect with them today?\\n\\nReply ✅ to send, ❌ to cancel.' }}"
+        }
+      }
+    },
+    {
+      "id": "update-offer-colleague-draft-pending",
+      "name": "Update Offer Status = colleague_draft_pending",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3500, 800],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'colleague_draft_pending', draft_id = $1, updated_at = now()\nWHERE offer_id = $2",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Create Colleague Draft').item.json.draft_id, $('Lookup Offer for Free Text').item.json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+
+    {
+      "id": "parse-meeting-time",
+      "name": "Parse Meeting Time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 1200],
+      "parameters": {
+        "jsCode": "const content = $('Classify Event').item.json.content ?? '';\nconst offerRow = $('Lookup Offer for Free Text').item.json;\n\n// Match pattern: HH:MM-HH:MM (today|tomorrow)?\nconst match = content.match(/^(\\d{1,2}):(\\d{2})\\s*[-–]\\s*(\\d{1,2}):(\\d{2})(?:\\s+(today|tomorrow))?/i);\n\nif (!match) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nconst [, startH, startM, endH, endM, dayWord] = match;\nconst now = new Date();\nconst base = new Date(now.getFullYear(), now.getMonth(), now.getDate());\n\nif (dayWord && dayWord.toLowerCase() === 'tomorrow') {\n  base.setDate(base.getDate() + 1);\n}\n\nconst start = new Date(base);\nstart.setHours(parseInt(startH, 10), parseInt(startM, 10), 0, 0);\n\nconst end = new Date(base);\nend.setHours(parseInt(endH, 10), parseInt(endM, 10), 0, 0);\n\nif (end <= start) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nreturn [{ json: {\n  parse_ok: true,\n  start_iso: start.toISOString(),\n  end_iso: end.toISOString(),\n  start_label: startH.padStart(2,'0') + ':' + startM,\n  end_label: endH.padStart(2,'0') + ':' + endM,\n  dm_channel_id: offerRow.dm_channel_id,\n  offer_id: offerRow.offer_id,\n  feature_area: offerRow.feature_area,\n  requester_calendar_email: offerRow.requester_calendar_email ?? ''\n}}];"
+      }
+    },
+    {
+      "id": "if-time-parsed",
+      "name": "If Time Parsed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2250, 1200],
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.parse_ok }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }]
+        }
+      }
+    },
+    {
+      "id": "send-time-parse-fail-dm",
+      "name": "Send Time Parse Fail DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 1300],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "[Pipemind] I could not parse that time. Please try again, e.g. \"14:00-15:00 today\". Reply cancel to stop."
+        }
+      }
+    },
+    {
+      "id": "create-meeting-draft",
+      "name": "Create Meeting Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2500, 1100],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.approval_drafts\n  (approver_discord_id, discord_channel_id, feature_tag, content_type, draft_text, context_json, expires_at, boundary_audit_passed)\nVALUES\n  ($1, $2, 'F-06', 'calendar_event',\n   '[Pipemind] Calendar block: Focus session for ' || $3 || ' — ' || $4 || ' to ' || $5 || '.',\n   jsonb_build_object('start_iso', $6, 'end_iso', $7, 'feature_area', $3, 'calendar_email', $8, 'offer_id', $9::text),\n   now() + INTERVAL '48 hours',\n   TRUE)\nRETURNING draft_id;",
+        "additionalFields": {
+          "queryParams": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $json.dm_channel_id,\n  $json.feature_area,\n  $json.start_label,\n  $json.end_label,\n  $json.start_iso,\n  $json.end_iso,\n  $json.requester_calendar_email,\n  $json.offer_id\n] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "send-meeting-draft-dm",
+      "name": "Send Meeting Draft DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2750, 1100],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Parse Meeting Time').item.json.dm_channel_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ '[Pipemind] Calendar block: Focus session for ' + $('Parse Meeting Time').item.json.feature_area + ' — ' + $('Parse Meeting Time').item.json.start_label + ' to ' + $('Parse Meeting Time').item.json.end_label + '.\\n\\nReply ✅ to create the calendar block, ❌ to cancel.' }}"
+        }
+      }
+    },
+    {
+      "id": "update-offer-meeting-draft-pending",
+      "name": "Update Offer Status = meeting_draft_pending",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3000, 1100],
+      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.unblock_offers\nSET status = 'meeting_draft_pending', draft_id = $1, updated_at = now()\nWHERE offer_id = $2",
+        "additionalFields": {
+          "queryParams": "={{ [ $('Create Meeting Draft').item.json.draft_id, $('Parse Meeting Time').item.json.offer_id ] }}"
+        }
+      },
+      "continueOnFail": false
     }
   ],
   "connections": {
@@ -241,7 +977,16 @@
     "Classify Event":         { "main": [[{ "node": "Skip?",                   "type": "main", "index": 0 }]] },
     "Skip?":                  { "main": [
       [{ "node": "Skip",                    "type": "main", "index": 0 }],
+      [{ "node": "Route F-06?",             "type": "main", "index": 0 }]
+    ]},
+    "Route F-06?":            { "main": [
+      [{ "node": "Verify F-06 Sender",      "type": "main", "index": 0 }],
       [{ "node": "Lookup Draft",            "type": "main", "index": 0 }]
+    ]},
+    "Verify F-06 Sender":     { "main": [[{ "node": "If F-06 Sender Valid?",     "type": "main", "index": 0 }]] },
+    "If F-06 Sender Valid?":  { "main": [
+      [{ "node": "F-06 Route",              "type": "main", "index": 0 }],
+      [{ "node": "Skip",                    "type": "main", "index": 0 }]
     ]},
     "Lookup Draft":           { "main": [[{ "node": "Pending & Right Actor?",  "type": "main", "index": 0 }]] },
     "Pending & Right Actor?": { "main": [
@@ -253,10 +998,10 @@
       [{ "node": "Route Action",            "type": "main", "index": 0 }]
     ]},
     "Route Action": {
-      "approve":    [[{ "node": "Mark Approved",    "type": "main", "index": 0 }]],
-      "reject":     [[{ "node": "Mark Rejected",    "type": "main", "index": 0 }]],
-      "edit":       [[{ "node": "Prompt for Edit",  "type": "main", "index": 0 }]],
-      "edit_reply": [[{ "node": "Sanitize Edit Content", "type": "main", "index": 0 }]]
+      "approve":    [[{ "node": "Mark Approved",          "type": "main", "index": 0 }]],
+      "reject":     [[{ "node": "Mark Rejected",          "type": "main", "index": 0 }]],
+      "edit":       [[{ "node": "Prompt for Edit",        "type": "main", "index": 0 }]],
+      "edit_reply": [[{ "node": "Sanitize Edit Content",  "type": "main", "index": 0 }]]
     },
     "Mark Approved":          { "main": [[{ "node": "Got Approval Lock?",      "type": "main", "index": 0 }]] },
     "Got Approval Lock?":     { "main": [
@@ -268,10 +1013,86 @@
     "Edit Author Valid?":     { "main": [
       [{ "node": "Save Edited Text",        "type": "main", "index": 0 }],
       [{ "node": "Skip",                    "type": "main", "index": 0 }]
-    ]}
+    ]},
+
+    "F-06 Route": {
+      "unblock_yes":       [[{ "node": "Lookup Unblock Offer (yes)",    "type": "main", "index": 0 }]],
+      "unblock_no":        [[{ "node": "Lookup Unblock Offer (no)",     "type": "main", "index": 0 }]],
+      "unblock_colleague": [[{ "node": "Lookup Offer for Colleague",    "type": "main", "index": 0 }]],
+      "unblock_meeting":   [[{ "node": "Lookup Offer for Meeting",      "type": "main", "index": 0 }]],
+      "unblock_just_talk": [[{ "node": "Lookup Offer for Just Talk",    "type": "main", "index": 0 }]],
+      "unblock_free_text": [[{ "node": "Lookup Offer for Free Text",    "type": "main", "index": 0 }]]
+    },
+
+    "Lookup Unblock Offer (yes)":  { "main": [[{ "node": "If Active Offer (yes)?",        "type": "main", "index": 0 }]] },
+    "If Active Offer (yes)?":      { "main": [
+      [{ "node": "Skip",                                                "type": "main", "index": 0 }],
+      [{ "node": "Mark Offer Accepted",                                 "type": "main", "index": 0 }]
+    ]},
+    "Mark Offer Accepted":         { "main": [[{ "node": "Send Help Menu DM",             "type": "main", "index": 0 }]] },
+    "Send Help Menu DM":           { "main": [[{ "node": "Mark Help Menu Sent",           "type": "main", "index": 0 }]] },
+
+    "Lookup Unblock Offer (no)":   { "main": [[{ "node": "If Active Offer (no)?",         "type": "main", "index": 0 }]] },
+    "If Active Offer (no)?":       { "main": [
+      [{ "node": "Skip",                                                "type": "main", "index": 0 }],
+      [{ "node": "Mark Offer Declined",                                 "type": "main", "index": 0 }]
+    ]},
+
+    "Lookup Offer for Colleague":  { "main": [[{ "node": "If Active Offer (colleague)?",  "type": "main", "index": 0 }]] },
+    "If Active Offer (colleague)?":{ "main": [
+      [{ "node": "Skip",                                                "type": "main", "index": 0 }],
+      [{ "node": "Send Colleague Prompt DM",                            "type": "main", "index": 0 }]
+    ]},
+    "Send Colleague Prompt DM":    { "main": [[{ "node": "Mark Colleague Pending",        "type": "main", "index": 0 }]] },
+
+    "Lookup Offer for Meeting":    { "main": [[{ "node": "If Active Offer (meeting)?",    "type": "main", "index": 0 }]] },
+    "If Active Offer (meeting)?":  { "main": [
+      [{ "node": "Skip",                                                "type": "main", "index": 0 }],
+      [{ "node": "Send Meeting Prompt DM",                              "type": "main", "index": 0 }]
+    ]},
+    "Send Meeting Prompt DM":      { "main": [[{ "node": "Mark Meeting Pending",          "type": "main", "index": 0 }]] },
+
+    "Lookup Offer for Just Talk":  { "main": [[{ "node": "If Active Offer (just-talk)?",  "type": "main", "index": 0 }]] },
+    "If Active Offer (just-talk)?":{ "main": [
+      [{ "node": "Skip",                                                "type": "main", "index": 0 }],
+      [{ "node": "Mark Just Talk",                                      "type": "main", "index": 0 }]
+    ]},
+    "Mark Just Talk":              { "main": [[{ "node": "Send Just Talk Confirmation DM","type": "main", "index": 0 }]] },
+
+    "Lookup Offer for Free Text":  { "main": [[{ "node": "If Active Offer (free-text)?",  "type": "main", "index": 0 }]] },
+    "If Active Offer (free-text)?":{ "main": [
+      [{ "node": "Skip",                                                "type": "main", "index": 0 }],
+      [{ "node": "If Colleague or Meeting?",                            "type": "main", "index": 0 }]
+    ]},
+    "If Colleague or Meeting?": {
+      "colleague_pending": [[{ "node": "Resolve Colleague from Roster", "type": "main", "index": 0 }]],
+      "meeting_pending":   [[{ "node": "Parse Meeting Time",            "type": "main", "index": 0 }]]
+    },
+
+    "Resolve Colleague from Roster":{ "main": [[{ "node": "If Colleague Found?",          "type": "main", "index": 0 }]] },
+    "If Colleague Found?":          { "main": [
+      [{ "node": "Send Colleague Not Found DM",                         "type": "main", "index": 0 }],
+      [{ "node": "Check Colleague Scheduled",                           "type": "main", "index": 0 }]
+    ]},
+    "Check Colleague Scheduled":    { "main": [[{ "node": "If Colleague Scheduled?",      "type": "main", "index": 0 }]] },
+    "If Colleague Scheduled?":      { "main": [
+      [{ "node": "Create Colleague Draft",                              "type": "main", "index": 0 }],
+      [{ "node": "Send Colleague Unavailable DM",                       "type": "main", "index": 0 }]
+    ]},
+    "Send Colleague Unavailable DM":{ "main": [[{ "node": "Mark Colleague Unavailable",   "type": "main", "index": 0 }]] },
+    "Create Colleague Draft":       { "main": [[{ "node": "Send Colleague Draft DM",      "type": "main", "index": 0 }]] },
+    "Send Colleague Draft DM":      { "main": [[{ "node": "Update Offer Status = colleague_draft_pending", "type": "main", "index": 0 }]] },
+
+    "Parse Meeting Time":           { "main": [[{ "node": "If Time Parsed?",              "type": "main", "index": 0 }]] },
+    "If Time Parsed?":              { "main": [
+      [{ "node": "Send Time Parse Fail DM",                             "type": "main", "index": 0 }],
+      [{ "node": "Create Meeting Draft",                                "type": "main", "index": 0 }]
+    ]},
+    "Create Meeting Draft":         { "main": [[{ "node": "Send Meeting Draft DM",        "type": "main", "index": 0 }]] },
+    "Send Meeting Draft DM":        { "main": [[{ "node": "Update Offer Status = meeting_draft_pending", "type": "main", "index": 0 }]] }
   },
   "active": true,
   "settings": { "executionOrder": "v1" },
   "meta": { "instanceId": "pipemind" },
-  "tags": [{ "name": "approval-gate" }, { "name": "p0" }]
+  "tags": [{ "name": "approval-gate" }, { "name": "p0" }, { "name": "f06" }]
 }
