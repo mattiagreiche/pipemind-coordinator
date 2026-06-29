@@ -1,0 +1,268 @@
+{
+  "name": "02 \u2014 Post Draft to Approval Channel (Sub-Workflow, F-03)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-sub-workflow-trigger",
+      "name": "Sub-Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM drafts WHERE type = $1 AND approver_discord_id = $2 AND status = 'pending' AND created_at > now() - INTERVAL '48 hours' LIMIT 1",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.type, $json.approver_discord_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-idempotency-check",
+      "name": "Idempotency Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-duplicate-found",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-check-duplicate",
+      "name": "Duplicate Draft Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $node['Sub-Workflow Input'].json.approval_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=A **{{ $node['Sub-Workflow Input'].json.type }}** draft is already pending your approval. React to it above or reject it before requesting a new one."
+        },
+        "options": {}
+      },
+      "id": "node-notify-duplicate",
+      "name": "Notify Duplicate Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO drafts (type, content_json, approver_discord_id) VALUES ($1, $2::jsonb, $3) RETURNING id, expires_at",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.type, JSON.stringify({ text: $json.content_text, metadata: $json.metadata_json }), $json.approver_discord_id] }}"
+        },
+        "options": {}
+      },
+      "id": "node-insert-draft",
+      "name": "Insert Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        760,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the approval message with draft ID and instructions.\n// The sub-workflow receives already-aggregated content (F-08 enforced by caller).\nconst input = $node['Sub-Workflow Input'].json;\nconst draft = $input.first().json;\nconst draftId = draft.id;\nconst expiresAt = draft.expires_at;\nconst type = input.type;\nconst contentText = input.content_text;\nconst approvalChannelId = input.approval_channel_id;\n\nconst message = `**[DRAFT \u2014 ${type}]** (ID: \\`${draftId}\\`)\n\n${contentText}\n\n---\nTo **approve**: reply \\`!approve ${draftId}\\`\nTo **reject**: reply \\`!reject ${draftId}\\`\nTo **edit and approve**: reply \\`!edit ${draftId} <your revised text>\\`\n\nThis draft expires at ${expiresAt} (UTC).`;\n\nreturn [{ json: { draft_id: draftId, expires_at: expiresAt, approval_channel_id: approvalChannelId, message_text: message } }];"
+      },
+      "id": "node-build-approval-message",
+      "name": "Build Approval Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.approval_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.message_text }}"
+        },
+        "options": {}
+      },
+      "id": "node-post-approval-request",
+      "name": "Post Approval Request to Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return draft_id and expires_at to the calling workflow.\nreturn [{\n  json: {\n    draft_id: $node['Build Approval Message'].json.draft_id,\n    expires_at: $node['Build Approval Message'].json.expires_at\n  }\n}];"
+      },
+      "id": "node-return-draft-id",
+      "name": "Return Draft ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Idempotency Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idempotency Check": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Draft Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate Draft Found?": {
+      "main": [
+        [
+          {
+            "node": "Notify Duplicate Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Draft": {
+      "main": [
+        [
+          {
+            "node": "Build Approval Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Approval Message": {
+      "main": [
+        [
+          {
+            "node": "Post Approval Request to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Approval Request to Discord": {
+      "main": [
+        [
+          {
+            "node": "Return Draft ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

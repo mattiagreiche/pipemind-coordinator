@@ -1,0 +1,143 @@
+{
+  "name": "08 — Roster Sync (Operational)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-cron-trigger",
+      "name": "Cron Trigger — Daily 8am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {},
+      "id": "node-manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 500]
+    },
+    {
+      "parameters": {
+        "mode": "passThrough",
+        "output": "first"
+      },
+      "id": "node-merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [320, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load and validate roster.yml. Throw if absent or invalid.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet roster;\ntry {\n  roster = yaml.load(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  throw new Error('Roster Sync: cannot load roster.yml: ' + e.message);\n}\nif (!roster || !roster.team || !roster.team_lead) {\n  throw new Error('Roster Sync: roster.yml missing required fields.');\n}\n// Build member list as individual items — one per member for SplitInBatches.\n// Team lead is included as an active member.\nconst allMembers = [\n  ...roster.team.map(m => ({ discord_id: m.discord_id, name: m.name, clockify_id: m.clockify_id || null, active: m.active !== false })),\n  { discord_id: roster.team_lead.discord_id, name: roster.team_lead.name, clockify_id: null, active: true }\n];\nconst memberCount = allMembers.length;\nconst teamLeadChannelId = roster.team_lead_channel_id;\n// Return one item per member — SplitInBatches will iterate them.\n// The team_lead_channel_id and member_count are carried in each item.\nreturn allMembers.map(m => ({\n  json: {\n    discord_id: m.discord_id,\n    name: m.name,\n    clockify_id: m.clockify_id,\n    active: m.active,\n    team_lead_channel_id: teamLeadChannelId,\n    member_count: memberCount\n  }\n}));"
+      },
+      "id": "node-load-roster-yaml",
+      "name": "Load Roster YAML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [540, 400]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-split-members",
+      "name": "Split Members",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [760, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO roster (discord_id, name, clockify_id, active) VALUES ($1, $2, $3, $4) ON CONFLICT (discord_id) DO UPDATE SET name = EXCLUDED.name, clockify_id = EXCLUDED.clockify_id, active = EXCLUDED.active",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ $json.discord_id }},={{ $json.name }},={{ $json.clockify_id }},={{ $json.active }}"
+        },
+        "options": {}
+      },
+      "id": "node-upsert-member",
+      "name": "Upsert Member",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [980, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres — Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// After all members upserted, check if this is the last batch item.\n// We only post the confirmation once — on the final item.\n// SplitInBatches sets $runIndex (0-based) and $itemIndex.\n// Use the member_count carried in each item to detect the final one.\nconst memberCount = $json.member_count;\nconst currentIndex = $itemIndex + 1;\nif (currentIndex < memberCount) {\n  return []; // Not the last member — continue without posting\n}\nreturn [{ json: { team_lead_channel_id: $json.team_lead_channel_id, member_count: memberCount } }];"
+      },
+      "id": "node-check-last-member",
+      "name": "Check If Last Member",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": [
+          { "name": "Authorization", "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}" },
+          { "name": "Content-Type", "value": "application/json" }
+        ],
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Roster reloaded. {{ $json.member_count }} members active."
+        },
+        "options": {}
+      },
+      "id": "node-post-sync-confirmation",
+      "name": "Post Sync Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 400]
+    }
+  ],
+  "connections": {
+    "Cron Trigger — Daily 8am": {
+      "main": [[{ "node": "Merge Triggers", "type": "main", "index": 0 }]]
+    },
+    "Manual Trigger": {
+      "main": [[{ "node": "Merge Triggers", "type": "main", "index": 1 }]]
+    },
+    "Merge Triggers": {
+      "main": [[{ "node": "Load Roster YAML", "type": "main", "index": 0 }]]
+    },
+    "Load Roster YAML": {
+      "main": [[{ "node": "Split Members", "type": "main", "index": 0 }]]
+    },
+    "Split Members": {
+      "main": [[{ "node": "Upsert Member", "type": "main", "index": 0 }]]
+    },
+    "Upsert Member": {
+      "main": [[{ "node": "Check If Last Member", "type": "main", "index": 0 }]]
+    },
+    "Check If Last Member": {
+      "main": [[{ "node": "Post Sync Confirmation", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

@@ -1,0 +1,303 @@
+{
+  "name": "00 \u2014 Startup Config Validator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check all required environment variables are present and non-empty.\n// Fails visibly with a descriptive error if any are absent (SC-16, SC-19).\nconst required = [\n  'DRIVE_FOLDER_ID',\n  'CLIENT_EMAIL',\n  'REPORT_DAY_TIME',\n  'EOD_TIME',\n  'DISCORD_BOT_TOKEN',\n  'OLLAMA_BASE_URL'\n];\nconst missing = required.filter(k => !process.env[k] || process.env[k].trim() === '');\nif (missing.length > 0) {\n  throw new Error('FATAL: Missing required environment variables: ' + missing.join(', ') + '. Halting startup. Fix these before running any workflow.');\n}\nreturn [{ json: { status: 'env_ok', checked: required } }];"
+      },
+      "id": "node-check-env-vars",
+      "name": "Check Env Vars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load and validate roster.yml (SC-19).\n// Throws with a descriptive error if absent or schema is invalid.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet raw;\ntry {\n  raw = fs.readFileSync(path, 'utf8');\n} catch (e) {\n  throw new Error('FATAL: roster.yml is absent at ' + path + '. The agent cannot start without a valid roster. (SC-19)');\n}\nlet roster;\ntry {\n  roster = yaml.load(raw);\n} catch (e) {\n  throw new Error('FATAL: roster.yml is unparseable YAML: ' + e.message + '. Fix the file before starting. (SC-19)');\n}\nconst missingKeys = ['team', 'team_lead', 'client', 'client_channel_id', 'team_lead_channel_id'].filter(k => !roster[k]);\nif (missingKeys.length > 0) {\n  throw new Error('FATAL: roster.yml is missing required fields: ' + missingKeys.join(', ') + '. (SC-19)');\n}\nif (!Array.isArray(roster.team) || roster.team.length === 0) {\n  throw new Error('FATAL: roster.yml `team` must be a non-empty array. (SC-19)');\n}\nif (!roster.team_lead.discord_id) {\n  throw new Error('FATAL: roster.yml team_lead must have discord_id. (SC-19)');\n}\nif (!roster.client.discord_id) {\n  throw new Error('FATAL: roster.yml client must have discord_id. (SC-19)');\n}\nreturn [{ json: { roster, member_count: roster.team.length } }];"
+      },
+      "id": "node-load-roster-yaml",
+      "name": "Load Roster YAML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Emit one item per roster member so SplitInBatches can upsert each safely.\n// Includes team members and team lead; excludes client (no roster table row needed).\nconst roster = $input.first().json.roster;\nconst members = [\n  ...roster.team.map(m => ({\n    discord_id: m.discord_id,\n    name: m.name,\n    clockify_id: m.clockify_id || null,\n    active: m.active !== false\n  })),\n  {\n    discord_id: roster.team_lead.discord_id,\n    name: roster.team_lead.name,\n    clockify_id: null,\n    active: true\n  }\n];\nreturn members.map(m => ({ json: m }));"
+      },
+      "id": "node-prepare-member-list",
+      "name": "Prepare Member List for Upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-upsert-each-member",
+      "name": "Upsert Each Member",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO roster (discord_id, name, clockify_id, active) VALUES ($1, $2, $3, $4) ON CONFLICT (discord_id) DO UPDATE SET name = EXCLUDED.name, clockify_id = EXCLUDED.clockify_id, active = EXCLUDED.active",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$json.discord_id, $json.name, $json.clockify_id, $json.active] }}"
+        },
+        "options": {}
+      },
+      "id": "node-upsert-member-to-postgres",
+      "name": "Upsert Member to Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-get-bot-discord-id",
+      "name": "Get Bot Discord ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_memory (key, value_json) VALUES ('bot_discord_id', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()",
+        "additionalFields": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ JSON.stringify($json.id) }}"
+        },
+        "options": {}
+      },
+      "id": "node-store-bot-id",
+      "name": "Store Bot Discord ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1640,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres \u2014 Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read member count and channel ID from upstream nodes\nconst rosterData = $node['Load Roster YAML'].json;\nconst roster = rosterData.roster;\nconst memberCount = rosterData.member_count;\nconst teamLeadChannelId = roster.team_lead_channel_id;\nreturn [{ json: { team_lead_channel_id: teamLeadChannelId, member_count: memberCount } }];"
+      },
+      "id": "node-prepare-success-message",
+      "name": "Prepare Success Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.team_lead_channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "=Pipemind startup complete. Roster loaded with {{ $json.member_count }} members. All required config present."
+        },
+        "options": {}
+      },
+      "id": "node-post-success-to-team-lead",
+      "name": "Post Success to Team Lead Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Env Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Env Vars": {
+      "main": [
+        [
+          {
+            "node": "Load Roster YAML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Roster YAML": {
+      "main": [
+        [
+          {
+            "node": "Prepare Member List for Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Member List for Upsert": {
+      "main": [
+        [
+          {
+            "node": "Upsert Each Member",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Each Member": {
+      "main": [
+        [
+          {
+            "node": "Upsert Member to Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Bot Discord ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Member to Postgres": {
+      "main": [
+        [
+          {
+            "node": "Upsert Each Member",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Bot Discord ID": {
+      "main": [
+        [
+          {
+            "node": "Store Bot Discord ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Bot Discord ID": {
+      "main": [
+        [
+          {
+            "node": "Prepare Success Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Success Message": {
+      "main": [
+        [
+          {
+            "node": "Post Success to Team Lead Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

@@ -1,0 +1,245 @@
+{
+  "name": "01 — Draft Expiry Sweeper (F-03.3)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-cron-trigger",
+      "name": "Cron Trigger — Hourly",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE drafts SET status = 'expired' WHERE status = 'pending' AND expires_at < now() RETURNING id, type, approver_discord_id, content_json",
+        "options": {}
+      },
+      "id": "node-find-expired-drafts",
+      "name": "Find Expired Drafts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [320, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres — Coordination Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build notification payloads for each expired draft.\n// Client-facing types go to the Team Lead channel.\n// Individual types (time_entry) go to the approver's DM.\nconst fs = require('fs');\nconst yaml = require('js-yaml');\nconst path = process.env.ROSTER_CONFIG_PATH || '/data/roster.yml';\nlet roster;\ntry {\n  roster = yaml.load(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  throw new Error('Expiry sweeper: cannot load roster.yml: ' + e.message);\n}\nconst teamLeadChannelId = roster.team_lead_channel_id;\nconst CLIENT_FACING_TYPES = ['client_report', 'qa_reply', 'client_welcome'];\n\nconst items = $input.all();\nif (!items || items.length === 0) {\n  return [];\n}\n\nreturn items.map(item => {\n  const { id, type, approver_discord_id } = item.json;\n  const isClientFacing = CLIENT_FACING_TYPES.includes(type);\n  return {\n    json: {\n      draft_id: id,\n      type,\n      approver_discord_id,\n      is_dm: !isClientFacing,\n      channel_id: isClientFacing ? teamLeadChannelId : null,\n      message_text: `A **${type}** draft (ID: \\`${id}\\`) has expired after 48 hours without action. Reply \\`!report\\` or use the n8n UI to re-trigger if needed. (F-03.3)`\n    }\n  };\n});"
+      },
+      "id": "node-build-notifications",
+      "name": "Build Notification Payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [540, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-split-notifications",
+      "name": "Split Notifications",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-is-dm",
+              "leftValue": "={{ $json.is_dm }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-is-dm",
+      "name": "Is DM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [980, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "recipient_id": "={{ $json.approver_discord_id }}"
+        },
+        "options": {}
+      },
+      "id": "node-open-dm-channel",
+      "name": "Open DM Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// DM branch: use the channel ID returned from the open-DM call\nconst dmResult = $input.first().json;\nreturn [{\n  json: {\n    channel_id: dmResult.id,\n    message_text: $node['Split Notifications'].json.message_text,\n    draft_id: $node['Split Notifications'].json.draft_id,\n    type: $node['Split Notifications'].json.type\n  }\n}];"
+      },
+      "id": "node-use-dm-channel-id",
+      "name": "Use DM Channel ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Team Lead channel branch: use channel_id already set in notification payload\nreturn [{\n  json: {\n    channel_id: $json.channel_id,\n    message_text: $json.message_text,\n    draft_id: $json.draft_id,\n    type: $json.type\n  }\n}];"
+      },
+      "id": "node-use-tl-channel-id",
+      "name": "Use Team Lead Channel ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.message_text }}"
+        },
+        "options": {}
+      },
+      "id": "node-post-expiry-notice-dm",
+      "name": "Post Expiry Notice (DM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1640, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://discord.com/api/v10/channels/{{ $json.channel_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "content": "={{ $json.message_text }}"
+        },
+        "options": {}
+      },
+      "id": "node-post-expiry-notice-tl",
+      "name": "Post Expiry Notice (Team Lead Channel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1640, 400]
+    }
+  ],
+  "connections": {
+    "Cron Trigger — Hourly": {
+      "main": [
+        [{ "node": "Find Expired Drafts", "type": "main", "index": 0 }]
+      ]
+    },
+    "Find Expired Drafts": {
+      "main": [
+        [{ "node": "Build Notification Payloads", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Notification Payloads": {
+      "main": [
+        [{ "node": "Split Notifications", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split Notifications": {
+      "main": [
+        [{ "node": "Is DM?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Is DM?": {
+      "main": [
+        [{ "node": "Open DM Channel", "type": "main", "index": 0 }],
+        [{ "node": "Use Team Lead Channel ID", "type": "main", "index": 0 }]
+      ]
+    },
+    "Open DM Channel": {
+      "main": [
+        [{ "node": "Use DM Channel ID", "type": "main", "index": 0 }]
+      ]
+    },
+    "Use DM Channel ID": {
+      "main": [
+        [{ "node": "Post Expiry Notice (DM)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Use Team Lead Channel ID": {
+      "main": [
+        [{ "node": "Post Expiry Notice (Team Lead Channel)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}
