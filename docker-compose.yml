@@ -96,6 +96,8 @@ services:
       REPORT_DAY_TIME: ${REPORT_DAY_TIME}
       # Roster config path (mounted below)
       ROSTER_CONFIG_PATH: /config/roster.json
+      # Allow fs module in Code nodes (needed for Read Roster File)
+      NODE_FUNCTION_ALLOW_BUILTIN: "fs"
       # LLM endpoint (Ollama via OpenAI-compatible API — local only, SC-11)
       LLM_BASE_URL: http://ollama:11434/v1
       LLM_MODEL: ${LLM_MODEL}
@@ -109,6 +111,19 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+
+  discord-forwarder:
+    build: ./discord-forwarder
+    restart: unless-stopped
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      TL_CHANNEL_ID: ${TL_CHANNEL_ID}
+      CLIENT_CHANNEL_ID: ${CLIENT_CHANNEL_ID}
+      N8N_WEBHOOK_BASE: http://n8n:5678/webhook
+    networks:
+      - pipemind-internal
+    depends_on:
+      - n8n
 
 networks:
   pipemind-internal:
