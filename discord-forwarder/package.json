@@ -1,0 +1,9 @@
+{
+  "name": "discord-forwarder",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "discord.js": "^14.16.0",
+    "node-fetch": "^3.3.2"
+  }
+}
