@@ -6,7 +6,10 @@
       "name": "Memory Reader Input",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
-      "position": [0, 300],
+      "position": [
+        0,
+        300
+      ],
       "parameters": {}
     },
     {
@@ -14,7 +17,10 @@
       "name": "Validate Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "parameters": {
         "jsCode": "const input = $input.first().json;\n\nconst VALID_PURPOSES = ['report', 'tl_internal', 'dev_self'];\nconst purpose = String(input.purpose || '');\nif (!VALID_PURPOSES.includes(purpose)) {\n  throw new Error('F-14: purpose must be one of: ' + VALID_PURPOSES.join(', '));\n}\n\nconst callerId = String(input.caller_discord_id || '');\n\n// Validate caller_discord_id format (snowflake: 17-19 digits) when provided\nif (callerId && !/^\\d{17,19}$/.test(callerId)) {\n  throw new Error('F-14: caller_discord_id must be a Discord snowflake (17-19 digits)');\n}\n\n// dev_self requires a caller\nif (purpose === 'dev_self' && !callerId) {\n  throw new Error('F-14: caller_discord_id is required for purpose=dev_self');\n}\n\nreturn [{ json: { purpose, safe_caller_id: callerId } }];"
       }
@@ -24,11 +30,14 @@
       "name": "Guard: Check Roster Valid",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [500, 300],
+      "position": [
+        500,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -41,7 +50,10 @@
       "name": "Roster Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [750, 300],
+      "position": [
+        750,
+        300
+      ],
       "parameters": {
         "conditions": {
           "conditions": [
@@ -62,7 +74,10 @@
       "name": "Error — Roster Not Valid",
       "type": "n8n-nodes-base.stopAndError",
       "typeVersion": 1,
-      "position": [1000, 100],
+      "position": [
+        1000,
+        100
+      ],
       "parameters": {
         "errorMessage": "F-14: Roster is not valid. Run Workflow 00 (Startup / Config Validation) first."
       }
@@ -72,11 +87,14 @@
       "name": "Fetch Project Signals",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1000, 300],
+      "position": [
+        1000,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -89,11 +107,14 @@
       "name": "Fetch QA History",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1250, 300],
+      "position": [
+        1250,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -106,18 +127,21 @@
       "name": "Fetch Own Standup Records",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1500, 300],
+      "position": [
+        1500,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT standup_date, raw_text, feature_area, has_blocker FROM pipemind.standup_records WHERE discord_id = $1 AND standup_date >= CURRENT_DATE - INTERVAL '7 days' ORDER BY standup_date DESC LIMIT 7;",
-        "additionalFields": {
-          "queryParams": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
         }
       }
     },
@@ -126,11 +150,14 @@
       "name": "Fetch Blocker Count",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1750, 300],
+      "position": [
+        1750,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -143,18 +170,21 @@
       "name": "Verify Caller In Roster",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2000, 300],
+      "position": [
+        2000,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT discord_id, role FROM pipemind.roster WHERE discord_id = $1 AND active = true;",
-        "additionalFields": {
-          "queryParams": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
         }
       }
     },
@@ -163,7 +193,10 @@
       "name": "Assemble Project Picture",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2250, 300],
+      "position": [
+        2250,
+        300
+      ],
       "parameters": {
         "jsCode": "const validated = $('Validate Input').item.json;\nconst purpose = validated.purpose;\n\n// Project signals — always safe, already aggregated (project-level)\nconst signalRows = $('Fetch Project Signals').all();\nconst featureAreas = signalRows.map(r => ({\n  area: r.json.feature_area,\n  status: r.json.status_summary,\n  has_blocker: r.json.has_blocker,\n  source: r.json.source,\n  last_signal: r.json.last_primary_signal_at\n}));\n\n// bootstrapping: no standup-sourced project signals have been built yet (F-14.6)\n// Supplementary signals may exist while bootstrapping is still true.\nconst bootstrapping = !featureAreas.some(a => a.source === 'standup');\n\n// Last standup date — derived from standup-sourced project signals\nconst standupSignals = featureAreas\n  .filter(a => a.source === 'standup' && a.last_signal)\n  .map(a => a.last_signal)\n  .sort();\nconst lastStandupDate = standupSignals.length > 0 ? standupSignals[standupSignals.length - 1] : null;\n\n// Recent Q&A — always safe (project-level)\nconst qaRows = $('Fetch QA History').all();\nconst recentQA = qaRows.map(r => ({\n  question: r.json.question_text,\n  answer: r.json.answer_text,\n  area: r.json.feature_area,\n  when: r.json.asked_at\n}));\n\nconst result = {\n  purpose,\n  bootstrapping,\n  project_picture: {\n    feature_areas: featureAreas,\n    last_standup_date: lastStandupDate,\n    recent_qa: recentQA\n  }\n};\n\n// dev_self: caller must be in active roster; include their own standup records only\n// SC-14: raw individual data returned only to the person themselves (HIGH-2)\nif (purpose === 'dev_self') {\n  const rosterRows = $('Verify Caller In Roster').all();\n  if (rosterRows.length === 0) {\n    throw new Error('F-14: caller_discord_id is not an active roster member');\n  }\n  const standupRows = $('Fetch Own Standup Records').all();\n  result.own_standups = standupRows.map(r => ({\n    date: r.json.standup_date,\n    text: r.json.raw_text,\n    area: r.json.feature_area,\n    has_blocker: r.json.has_blocker\n  }));\n}\n\n// tl_internal: anonymised blocker signals (counts only, no names)\n// SC-03 Tier 2: work-area signals without naming any individual\nif (purpose === 'tl_internal') {\n  const blockerRows = $('Fetch Blocker Count').all();\n  const bc = blockerRows[0]?.json ?? {};\n  result.internal_signals = {\n    active_blocker_developer_count: Number(bc.developer_count ?? 0),\n    active_blocker_area_count: Number(bc.area_count ?? 0)\n  };\n}\n\nreturn [{ json: result }];"
       }
@@ -294,5 +327,6 @@
     {
       "name": "p1"
     }
-  ]
+  ],
+  "id": "oPAPftYuihv8ZjAI"
 }

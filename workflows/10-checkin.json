@@ -6,7 +6,10 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 300],
+      "position": [
+        0,
+        300
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -25,11 +28,14 @@
       "name": "Guard: Check Roster Valid",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -42,14 +48,20 @@
       "name": "If Roster Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [500, 300],
+      "position": [
+        500,
+        300
+      ],
       "parameters": {
         "conditions": {
           "conditions": [
             {
               "leftValue": "={{ $json.value }}",
               "rightValue": "true",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ]
         }
@@ -60,7 +72,10 @@
       "name": "Error — Roster Not Valid",
       "type": "n8n-nodes-base.stopAndError",
       "typeVersion": 1,
-      "position": [750, 100],
+      "position": [
+        750,
+        100
+      ],
       "parameters": {
         "errorMessage": "F-05: Roster is not valid (SC-19). Run Workflow 00 (Startup / Config Validation) first."
       }
@@ -70,11 +85,14 @@
       "name": "Fetch Developer Status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [750, 300],
+      "position": [
+        750,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -87,7 +105,10 @@
       "name": "Aggregate & Guard Empty",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1000, 300],
+      "position": [
+        1000,
+        300
+      ],
       "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "const rows = $input.all();\nif (rows.length === 0) {\n  return []; // No active, non-muted developers — exit gracefully\n}\nconst developers = rows.map(r => ({\n  discord_id:        r.json.discord_id,\n  name:              r.json.name,\n  clockify_user_id:  r.json.clockify_user_id  || null,\n  calendar_email:    r.json.calendar_email    || null,\n  heard_from_today:  r.json.heard_from_today  === true || r.json.heard_from_today  === 'true',\n  already_contacted: r.json.already_contacted === true || r.json.already_contacted === 'true'\n}));\nreturn [{ json: { developers } }];"
@@ -98,7 +119,10 @@
       "name": "Check Clockify Time Off",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1250, 300],
+      "position": [
+        1250,
+        300
+      ],
       "continueOnFail": true,
       "parameters": {
         "method": "GET",
@@ -106,15 +130,27 @@
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "start",  "value": "={{ new Date().toISOString().slice(0, 10) + 'T00:00:00Z' }}" },
-            { "name": "end",    "value": "={{ new Date().toISOString().slice(0, 10) + 'T23:59:59Z' }}" },
-            { "name": "status", "value": "APPROVED" }
+            {
+              "name": "start",
+              "value": "={{ new Date().toISOString().slice(0, 10) + 'T00:00:00Z' }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ new Date().toISOString().slice(0, 10) + 'T23:59:59Z' }}"
+            },
+            {
+              "name": "status",
+              "value": "APPROVED"
+            }
           ]
         },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-Api-Key", "value": "={{ $env.CLOCKIFY_API_KEY }}" }
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
           ]
         }
       }
@@ -124,7 +160,10 @@
       "name": "Strip Clockify Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1500, 300],
+      "position": [
+        1500,
+        300
+      ],
       "parameters": {
         "jsCode": "// H-02: reduce Clockify response to userId-only before n8n logs the payload.\n// Discards all other fields (name, email, dates) that could expose non-roster workspace members.\nconst raw = $json;\nconst ids = [];\nlet ok = false;\ntry {\n  if (Array.isArray(raw)) {\n    ok = true;\n    for (const r of raw) {\n      if (r.userId) ids.push(String(r.userId));\n    }\n  }\n} catch (_) {}\nreturn [{ json: { clockify_ok: ok, clockify_off_ids: ids } }];"
       }
@@ -134,7 +173,10 @@
       "name": "Check Google Calendar OOO",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1750, 300],
+      "position": [
+        1750,
+        300
+      ],
       "continueOnFail": true,
       "credentials": {
         "googleCalendarOAuth2Api": {
@@ -157,7 +199,10 @@
       "name": "Compute Missing & Scheduled",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2000, 300],
+      "position": [
+        2000,
+        300
+      ],
       "parameters": {
         "jsCode": "const developers = $('Aggregate & Guard Empty').first().json.developers;\n\n// --- Clockify primary source (pre-stripped to userId-only by Strip Clockify Fields) ---\nconst clockifyData = $('Strip Clockify Fields').first().json;\nconst clockifyOk = clockifyData.clockify_ok;\nconst clockifyUnavailable = new Set(clockifyData.clockify_off_ids);\n\n// --- Google Calendar secondary source (OOO = busy 6+ hours) ---\n// SC-06a: stricter source wins — if Calendar marks OOO, treat as not scheduled\nconst calRaw = $('Check Google Calendar OOO').first()?.json;\nconst calUnavailableEmails = new Set();\nlet calOk = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const [email, data] of Object.entries(calRaw.calendars)) {\n      if (Array.isArray(data.busy)) {\n        const isOOO = data.busy.some(p => {\n          const hours = (new Date(p.end) - new Date(p.start)) / 3_600_000;\n          return hours >= 6;\n        });\n        if (isOOO) calUnavailableEmails.add(email.toLowerCase());\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-18: both sources unavailable → fail-safe, no contacts, log for TL visibility\nif (!clockifyOk && !calOk) {\n  return [{ json: { missing_developers: [], sc18_failsafe: true } }];\n}\n\n// Build check-in list — SC-04/SC-05: no productivity reasoning; only schedule + heard-from\nconst missing = [];\nfor (const dev of developers) {\n  // Already heard from today (standup received)\n  if (dev.heard_from_today) continue;\n  // Already contacted today — DB UNIQUE guard also covers this at insert time\n  if (dev.already_contacted) continue;\n\n  // SC-06a: if either available source marks person as unavailable, skip them\n  let scheduled = true;\n  if (clockifyOk && dev.clockify_user_id) {\n    if (clockifyUnavailable.has(String(dev.clockify_user_id))) scheduled = false;\n  }\n  if (calOk && dev.calendar_email) {\n    if (calUnavailableEmails.has(dev.calendar_email.toLowerCase())) scheduled = false;\n  }\n  if (!scheduled) continue;\n\n  // H-01: only discord_id forwarded — name excluded from execution logs\n  missing.push({ discord_id: dev.discord_id });\n}\n\nreturn [{ json: { missing_developers: missing, sc18_failsafe: false } }];"
       }
@@ -167,14 +212,20 @@
       "name": "If Anyone To Contact?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2250, 300],
+      "position": [
+        2250,
+        300
+      ],
       "parameters": {
         "conditions": {
           "conditions": [
             {
               "leftValue": "={{ $json.missing_developers.length }}",
               "rightValue": 0,
-              "operator": { "type": "number", "operation": "gt" }
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
             }
           ]
         }
@@ -185,18 +236,21 @@
       "name": "Log Run Status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2500, 100],
+      "position": [
+        2500,
+        100
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.system_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;",
-        "additionalFields": {
-          "queryParams": "={{ JSON.stringify(['checkin_last_run', $json.sc18_failsafe ? 'sc18_failsafe:' + new Date().toISOString() : 'no_contacts_needed:' + new Date().toISOString()]) }}"
+        "options": {
+          "queryReplacement": "={{ JSON.stringify(['checkin_last_run', $json.sc18_failsafe ? 'sc18_failsafe:' + new Date().toISOString() : 'no_contacts_needed:' + new Date().toISOString()]) }}"
         }
       }
     },
@@ -205,14 +259,20 @@
       "name": "If SC-18 Failsafe?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2750, 100],
+      "position": [
+        2750,
+        100
+      ],
       "parameters": {
         "conditions": {
           "conditions": [
             {
               "leftValue": "={{ String($json.sc18_failsafe) }}",
               "rightValue": "true",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ]
         }
@@ -223,15 +283,24 @@
       "name": "Notify TL: SC-18 Failsafe",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3000, 100],
+      "position": [
+        3000,
+        100
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -244,7 +313,10 @@
       "name": "Split Into DM Items",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2500, 300],
+      "position": [
+        2500,
+        300
+      ],
       "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "// H-01: only discord_id forwarded — name was excluded from missing_developers\nconst { missing_developers } = $input.first().json;\nreturn missing_developers.map(dev => ({ json: { discord_id: dev.discord_id } }));"
@@ -255,7 +327,10 @@
       "name": "Open DM Channel",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2750, 300],
+      "position": [
+        2750,
+        300
+      ],
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
@@ -263,8 +338,14 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -277,7 +358,10 @@
       "name": "Send Check-In DM",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3000, 300],
+      "position": [
+        3000,
+        300
+      ],
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
@@ -285,8 +369,14 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -299,7 +389,10 @@
       "name": "Merge Send Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3250, 300],
+      "position": [
+        3250,
+        300
+      ],
       "parameters": {
         "jsCode": "// M-02: explicitly forward discord_id with the send result so Log Outreach reads from\n// $json.discord_id (immediate upstream) rather than a distant item-paired node reference.\nconst discordId = $('Split Into DM Items').item.json.discord_id;\nconst messageId = $json.id || null;  // Discord message ID on success; null on DM failure\nreturn [{ json: { discord_id: discordId, message_id: messageId, dm_sent: !!messageId } }];"
       }
@@ -309,14 +402,20 @@
       "name": "If DM Sent?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [3500, 300],
+      "position": [
+        3500,
+        300
+      ],
       "parameters": {
         "conditions": {
           "conditions": [
             {
               "leftValue": "={{ $json.dm_sent }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "equals" }
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
             }
           ]
         }
@@ -327,82 +426,225 @@
       "name": "Log Outreach",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [3750, 300],
+      "position": [
+        3750,
+        300
+      ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.outreach_log (discord_id, outreach_type, outreach_date) VALUES ($1, 'check_in', CURRENT_DATE) ON CONFLICT (discord_id, outreach_type, outreach_date) DO NOTHING;",
-        "additionalFields": {
-          "queryParams": "={{ JSON.stringify([$json.discord_id]) }}"
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$json.discord_id]) }}"
         }
       }
     }
   ],
   "connections": {
     "Schedule Trigger": {
-      "main": [[{ "node": "Guard: Check Roster Valid", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Guard: Check Roster Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Guard: Check Roster Valid": {
-      "main": [[{ "node": "If Roster Valid?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "If Roster Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "If Roster Valid?": {
       "main": [
-        [{ "node": "Fetch Developer Status",  "type": "main", "index": 0 }],
-        [{ "node": "Error — Roster Not Valid", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Fetch Developer Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error — Roster Not Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch Developer Status": {
-      "main": [[{ "node": "Aggregate & Guard Empty", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Aggregate & Guard Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Aggregate & Guard Empty": {
-      "main": [[{ "node": "Check Clockify Time Off", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Check Clockify Time Off",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Check Clockify Time Off": {
-      "main": [[{ "node": "Strip Clockify Fields", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Strip Clockify Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Strip Clockify Fields": {
-      "main": [[{ "node": "Check Google Calendar OOO", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Check Google Calendar OOO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Check Google Calendar OOO": {
-      "main": [[{ "node": "Compute Missing & Scheduled", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Compute Missing & Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Compute Missing & Scheduled": {
-      "main": [[{ "node": "If Anyone To Contact?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "If Anyone To Contact?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "If Anyone To Contact?": {
       "main": [
-        [{ "node": "Split Into DM Items", "type": "main", "index": 0 }],
-        [{ "node": "Log Run Status",       "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Split Into DM Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Run Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Log Run Status": {
-      "main": [[{ "node": "If SC-18 Failsafe?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "If SC-18 Failsafe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "If SC-18 Failsafe?": {
       "main": [
-        [{ "node": "Notify TL: SC-18 Failsafe", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Notify TL: SC-18 Failsafe",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Split Into DM Items": {
-      "main": [[{ "node": "Open DM Channel", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Open DM Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Open DM Channel": {
-      "main": [[{ "node": "Send Check-In DM", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Send Check-In DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Send Check-In DM": {
-      "main": [[{ "node": "Merge Send Result", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Merge Send Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Merge Send Result": {
-      "main": [[{ "node": "If DM Sent?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "If DM Sent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "If DM Sent?": {
       "main": [
-        [{ "node": "Log Outreach", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Log Outreach",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
@@ -414,8 +656,15 @@
     "instanceId": "pipemind"
   },
   "tags": [
-    { "name": "check-in" },
-    { "name": "developer" },
-    { "name": "p1" }
-  ]
+    {
+      "name": "check-in"
+    },
+    {
+      "name": "developer"
+    },
+    {
+      "name": "p1"
+    }
+  ],
+  "id": "HO7YU3C7qkGYd72L"
 }
