@@ -6,7 +6,10 @@
       "name": "Approval Gate Input",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
-      "position": [0, 300],
+      "position": [
+        0,
+        300
+      ],
       "parameters": {}
     },
     {
@@ -14,8 +17,16 @@
       "name": "Check roster_valid",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [250, 300],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        250,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT value FROM pipemind.system_state WHERE key = 'roster_valid';"
@@ -26,14 +37,20 @@
       "name": "Roster Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [500, 300],
+      "position": [
+        500,
+        300
+      ],
       "parameters": {
         "conditions": {
           "conditions": [
             {
               "leftValue": "={{ $json.value }}",
               "rightValue": "true",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ]
         }
@@ -44,13 +61,21 @@
       "name": "Insert Draft",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [750, 200],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        750,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.approval_drafts\n  (feature_tag, content_type, draft_text, boundary_audit_passed,\n   approver_discord_id, discord_channel_id, context_json)\nVALUES\n  ($1, $2, $3, false, $4, $5, $6::jsonb)\nRETURNING draft_id, expires_at;",
-        "additionalFields": {
-          "queryParams": "={{ [\n  $('Approval Gate Input').item.json.feature_tag,\n  $('Approval Gate Input').item.json.content_type,\n  ($('Approval Gate Input').item.json.draft_text ?? '').split('{{').join('{ {').split('${').join('$ {'),\n  $('Approval Gate Input').item.json.approver_discord_id,\n  $('Approval Gate Input').item.json.approval_channel_id,\n  JSON.stringify($('Approval Gate Input').item.json.context_json ?? {})\n] }}"
+        "options": {
+          "queryReplacement": "={{ [\n  $('Approval Gate Input').item.json.feature_tag,\n  $('Approval Gate Input').item.json.content_type,\n  ($('Approval Gate Input').item.json.draft_text ?? '').split('{{').join('{ {').split('${').join('$ {'),\n  $('Approval Gate Input').item.json.approver_discord_id,\n  $('Approval Gate Input').item.json.approval_channel_id,\n  JSON.stringify($('Approval Gate Input').item.json.context_json ?? {})\n] }}"
         }
       }
     },
@@ -59,7 +84,10 @@
       "name": "Client-Facing?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1000, 200],
+      "position": [
+        1000,
+        200
+      ],
       "parameters": {
         "conditions": {
           "conditions": [
@@ -67,19 +95,28 @@
               "id": "c1",
               "leftValue": "={{ $('Approval Gate Input').item.json.content_type }}",
               "rightValue": "report",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             },
             {
               "id": "c2",
               "leftValue": "={{ $('Approval Gate Input').item.json.content_type }}",
               "rightValue": "qa_reply",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             },
             {
               "id": "c3",
               "leftValue": "={{ $('Approval Gate Input').item.json.content_type }}",
               "rightValue": "welcome",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "or"
@@ -91,14 +128,29 @@
       "name": "Prepare F-08 Input",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1250, 50],
+      "position": [
+        1250,
+        50
+      ],
       "parameters": {
         "mode": "manual",
         "fields": {
           "values": [
-            { "name": "draft_text",   "value": "={{ $('Approval Gate Input').item.json.draft_text }}", "type": "string" },
-            { "name": "content_type", "value": "={{ $('Approval Gate Input').item.json.content_type }}", "type": "string" },
-            { "name": "feature_tag",  "value": "={{ $('Approval Gate Input').item.json.feature_tag }}", "type": "string" }
+            {
+              "name": "draft_text",
+              "value": "={{ $('Approval Gate Input').item.json.draft_text }}",
+              "type": "string"
+            },
+            {
+              "name": "content_type",
+              "value": "={{ $('Approval Gate Input').item.json.content_type }}",
+              "type": "string"
+            },
+            {
+              "name": "feature_tag",
+              "value": "={{ $('Approval Gate Input').item.json.feature_tag }}",
+              "type": "string"
+            }
           ]
         }
       }
@@ -108,7 +160,10 @@
       "name": "Call F-08 Boundary Audit",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [1500, 50],
+      "position": [
+        1500,
+        50
+      ],
       "parameters": {
         "source": "database",
         "workflowId": {
@@ -125,13 +180,21 @@
       "name": "Update Clean Draft",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1750, 50],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        1750,
+        50
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET draft_text = $1,\n    boundary_audit_passed = true,\n    updated_at = now()\nWHERE draft_id = $2::uuid AND status = 'pending'\nRETURNING draft_text;",
-        "additionalFields": {
-          "queryParams": "={{ [ $json.draft_text, $('Insert Draft').item.json.draft_id ] }}"
+        "options": {
+          "queryReplacement": "={{ [ $json.draft_text, $('Insert Draft').item.json.draft_id ] }}"
         }
       }
     },
@@ -140,12 +203,19 @@
       "name": "Set Final Draft (client)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [2000, 50],
+      "position": [
+        2000,
+        50
+      ],
       "parameters": {
         "mode": "manual",
         "fields": {
           "values": [
-            { "name": "final_draft_text", "value": "={{ $('Update Clean Draft').item.json.draft_text }}", "type": "string" }
+            {
+              "name": "final_draft_text",
+              "value": "={{ $('Update Clean Draft').item.json.draft_text }}",
+              "type": "string"
+            }
           ]
         }
       }
@@ -155,13 +225,21 @@
       "name": "Mark Boundary Passed",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1250, 350],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        1250,
+        350
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET boundary_audit_passed = true,\n    updated_at = now()\nWHERE draft_id = $1::uuid AND status = 'pending';",
-        "additionalFields": {
-          "queryParams": "={{ [ $('Insert Draft').item.json.draft_id ] }}"
+        "options": {
+          "queryReplacement": "={{ [ $('Insert Draft').item.json.draft_id ] }}"
         }
       }
     },
@@ -170,12 +248,19 @@
       "name": "Set Final Draft (non-client)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1500, 350],
+      "position": [
+        1500,
+        350
+      ],
       "parameters": {
         "mode": "manual",
         "fields": {
           "values": [
-            { "name": "final_draft_text", "value": "={{ $('Approval Gate Input').item.json.draft_text }}", "type": "string" }
+            {
+              "name": "final_draft_text",
+              "value": "={{ $('Approval Gate Input').item.json.draft_text }}",
+              "type": "string"
+            }
           ]
         }
       }
@@ -185,7 +270,10 @@
       "name": "Build Discord Message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2250, 200],
+      "position": [
+        2250,
+        200
+      ],
       "parameters": {
         "jsCode": "const input = $('Approval Gate Input').item.json;\nconst draft = $('Insert Draft').item.json;\nconst clientFacing = ['report', 'qa_reply', 'welcome'];\n\n// Force TL approval channel for client-facing content types\nconst channelId = clientFacing.includes(input.content_type)\n  ? $env.TEAM_LEAD_APPROVAL_CHANNEL_ID\n  : input.approval_channel_id;\n\n// Use final_draft_text — F-08-rewritten for client-facing, original for non-client\nconst rawText = String($json.final_draft_text ?? '');\nconst safeText = rawText\n  .replace(/`/g, \"'\")\n  .slice(0, 1700)\n  + (rawText.length > 1700 ? '\\n[truncated — full text stored in DB]' : '');\n\nconst message = [\n  '📋 **Draft ready for review** — `' + input.content_type + '` (' + input.feature_tag + ')',\n  '',\n  '---',\n  safeText,\n  '---',\n  '',\n  'React ✅ to **approve** · ✏️ to **edit** · ❌ to **reject**',\n  '`Draft ID: ' + draft.draft_id + '`',\n  '⏰ Expires: ' + draft.expires_at\n].join('\\n');\n\nreturn [{ json: { channelId, message } }];"
       }
@@ -193,14 +281,32 @@
     {
       "id": "post-approval-prompt",
       "name": "Post Approval Prompt",
-      "type": "n8n-nodes-base.discord",
-      "typeVersion": 2,
-      "position": [2500, 200],
-      "credentials": { "discordBotApi": { "id": "pipemindDiscord", "name": "Pipemind Discord Bot" } },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        200
+      ],
+      "continueOnFail": true,
       "parameters": {
-        "operation": "sendMessage",
-        "channelId": "={{ $json.channelId }}",
-        "content": "={{ $json.message }}"
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$json.channelId}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: String($json.message).slice(0,2000) }) }}"
       }
     },
     {
@@ -208,13 +314,21 @@
       "name": "Save Discord Message ID",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2750, 200],
-      "credentials": { "postgres": { "id": "pipemindPostgres", "name": "Pipemind Postgres" } },
+      "position": [
+        2750,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET discord_message_id = $1\nWHERE draft_id = $2::uuid;",
-        "additionalFields": {
-          "queryParams": "={{ [ $('Post Approval Prompt').item.json.id, $('Insert Draft').item.json.draft_id ] }}"
+        "options": {
+          "queryReplacement": "={{ [ $('Post Approval Prompt').item.json.id, $('Insert Draft').item.json.draft_id ] }}"
         }
       }
     },
@@ -223,14 +337,26 @@
       "name": "Return Draft Info",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [3000, 200],
+      "position": [
+        3000,
+        200
+      ],
       "parameters": {
         "mode": "manual",
         "fields": {
           "values": [
-            { "name": "draft_id",          "value": "={{ $('Insert Draft').item.json.draft_id }}" },
-            { "name": "discord_message_id","value": "={{ $('Post Approval Prompt').item.json.id }}" },
-            { "name": "expires_at",        "value": "={{ $('Insert Draft').item.json.expires_at }}" }
+            {
+              "name": "draft_id",
+              "value": "={{ $('Insert Draft').item.json.draft_id }}"
+            },
+            {
+              "name": "discord_message_id",
+              "value": "={{ $('Post Approval Prompt').item.json.id }}"
+            },
+            {
+              "name": "expires_at",
+              "value": "={{ $('Insert Draft').item.json.expires_at }}"
+            }
           ]
         }
       }
@@ -240,36 +366,202 @@
       "name": "Error — Roster Invalid",
       "type": "n8n-nodes-base.stopAndError",
       "typeVersion": 1,
-      "position": [750, 450],
+      "position": [
+        750,
+        450
+      ],
       "parameters": {
         "errorMessage": "Approval gate aborted: roster_valid is false. Fix /config/roster.json and wait for Workflow 00 to re-validate."
       }
     }
   ],
   "connections": {
-    "Approval Gate Input":         { "main": [[{ "node": "Check roster_valid",             "type": "main", "index": 0 }]] },
-    "Check roster_valid":          { "main": [[{ "node": "Roster Valid?",                   "type": "main", "index": 0 }]] },
-    "Roster Valid?":               { "main": [
-      [{ "node": "Insert Draft",                   "type": "main", "index": 0 }],
-      [{ "node": "Error — Roster Invalid",         "type": "main", "index": 0 }]
-    ]},
-    "Insert Draft":                { "main": [[{ "node": "Client-Facing?",                  "type": "main", "index": 0 }]] },
-    "Client-Facing?":              { "main": [
-      [{ "node": "Prepare F-08 Input",             "type": "main", "index": 0 }],
-      [{ "node": "Mark Boundary Passed",           "type": "main", "index": 0 }]
-    ]},
-    "Prepare F-08 Input":          { "main": [[{ "node": "Call F-08 Boundary Audit",        "type": "main", "index": 0 }]] },
-    "Call F-08 Boundary Audit":    { "main": [[{ "node": "Update Clean Draft",              "type": "main", "index": 0 }]] },
-    "Update Clean Draft":          { "main": [[{ "node": "Set Final Draft (client)",         "type": "main", "index": 0 }]] },
-    "Set Final Draft (client)":    { "main": [[{ "node": "Build Discord Message",           "type": "main", "index": 0 }]] },
-    "Mark Boundary Passed":        { "main": [[{ "node": "Set Final Draft (non-client)",    "type": "main", "index": 0 }]] },
-    "Set Final Draft (non-client)":{ "main": [[{ "node": "Build Discord Message",           "type": "main", "index": 0 }]] },
-    "Build Discord Message":       { "main": [[{ "node": "Post Approval Prompt",            "type": "main", "index": 0 }]] },
-    "Post Approval Prompt":        { "main": [[{ "node": "Save Discord Message ID",         "type": "main", "index": 0 }]] },
-    "Save Discord Message ID":     { "main": [[{ "node": "Return Draft Info",               "type": "main", "index": 0 }]] }
+    "Approval Gate Input": {
+      "main": [
+        [
+          {
+            "node": "Check roster_valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check roster_valid": {
+      "main": [
+        [
+          {
+            "node": "Roster Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roster Valid?": {
+      "main": [
+        [
+          {
+            "node": "Insert Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error — Roster Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Draft": {
+      "main": [
+        [
+          {
+            "node": "Client-Facing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Client-Facing?": {
+      "main": [
+        [
+          {
+            "node": "Prepare F-08 Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Boundary Passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare F-08 Input": {
+      "main": [
+        [
+          {
+            "node": "Call F-08 Boundary Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call F-08 Boundary Audit": {
+      "main": [
+        [
+          {
+            "node": "Update Clean Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Clean Draft": {
+      "main": [
+        [
+          {
+            "node": "Set Final Draft (client)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Final Draft (client)": {
+      "main": [
+        [
+          {
+            "node": "Build Discord Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Boundary Passed": {
+      "main": [
+        [
+          {
+            "node": "Set Final Draft (non-client)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Final Draft (non-client)": {
+      "main": [
+        [
+          {
+            "node": "Build Discord Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Discord Message": {
+      "main": [
+        [
+          {
+            "node": "Post Approval Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Approval Prompt": {
+      "main": [
+        [
+          {
+            "node": "Save Discord Message ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Discord Message ID": {
+      "main": [
+        [
+          {
+            "node": "Return Draft Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": true,
-  "settings": { "executionOrder": "v1" },
-  "meta": { "instanceId": "pipemind" },
-  "tags": [{ "name": "approval-gate" }, { "name": "sub-workflow" }, { "name": "p0" }]
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "approval-gate"
+    },
+    {
+      "name": "sub-workflow"
+    },
+    {
+      "name": "p0"
+    }
+  ],
+  "id": "mGhV3y76kzkc1f3d"
 }

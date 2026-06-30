@@ -39,14 +39,17 @@
     {
       "id": "read-file",
       "name": "Read Roster File",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
       "position": [
         650,
         200
       ],
+      "continueOnFail": true,
       "parameters": {
-        "jsCode": "const fs = require('fs');\nlet stdout;\ntry {\n  stdout = fs.readFileSync('/config/roster.json', 'utf8');\n} catch (e) {\n  stdout = '{\"__error\":\"file_not_found\"}';\n}\nreturn [{ json: { stdout } }];"
+        "operation": "read",
+        "fileSelector": "/config/roster.json",
+        "options": {}
       }
     },
     {
@@ -59,7 +62,7 @@
         250
       ],
       "parameters": {
-        "jsCode": "const raw = $input.first().json.stdout;\n\nif (!raw || raw.trim() === '') {\n  return [{ json: { valid: false, error: 'roster.json is empty', entries: [], hash: '' } }];\n}\n\nif (raw.trim() === '{\"__error\":\"file_not_found\"}') {\n  return [{ json: { valid: false, error: 'roster.json not found at /config/roster.json', entries: [], hash: '' } }];\n}\n\nlet data;\ntry {\n  data = JSON.parse(raw);\n} catch (e) {\n  return [{ json: { valid: false, error: 'Invalid JSON: ' + e.message, entries: [], hash: '' } }];\n}\n\nconst errors = [];\n\nif (!data.team_lead || typeof data.team_lead !== 'object') {\n  errors.push('Missing \"team_lead\" object');\n} else {\n  if (!data.team_lead.name) errors.push('team_lead: missing name');\n  if (!data.team_lead.discord_id) errors.push('team_lead: missing discord_id');\n  if (!data.team_lead.clockify_user_id) errors.push('team_lead: missing clockify_user_id');\n}\n\nif (!Array.isArray(data.developers) || data.developers.length === 0) {\n  errors.push('developers: must be a non-empty array (at least 1 required)');\n} else {\n  data.developers.forEach((dev, i) => {\n    if (!dev.name) errors.push('developers[' + i + ']: missing name');\n    if (!dev.discord_id) errors.push('developers[' + i + ']: missing discord_id');\n    if (!dev.clockify_user_id) errors.push('developers[' + i + ']: missing clockify_user_id');\n  });\n}\n\nif (!data.client || typeof data.client !== 'object') {\n  errors.push('Missing \"client\" object');\n} else {\n  if (!data.client.name) errors.push('client: missing name');\n  if (!data.client.discord_id) errors.push('client: missing discord_id');\n  if (!data.client.discord_channel_id) errors.push('client: missing discord_channel_id');\n}\n\nif (errors.length > 0) {\n  return [{ json: { valid: false, error: errors.join(' | '), entries: [], hash: '' } }];\n}\n\nconst crypto = require('crypto');\nconst hash = crypto.createHash('sha256').update(raw).digest('hex');\n\nconst entries = [\n  {\n    discord_id: data.team_lead.discord_id,\n    name: data.team_lead.name,\n    role: 'team_lead',\n    clockify_user_id: data.team_lead.clockify_user_id,\n    discord_channel_id: null\n  },\n  ...data.developers.map(dev => ({\n    discord_id: dev.discord_id,\n    name: dev.name,\n    role: 'developer',\n    clockify_user_id: dev.clockify_user_id,\n    discord_channel_id: null\n  })),\n  {\n    discord_id: data.client.discord_id,\n    name: data.client.name,\n    role: 'client',\n    clockify_user_id: null,\n    discord_channel_id: data.client.discord_channel_id\n  }\n];\n\nreturn [{ json: { valid: true, entries, hash } }];"
+        "jsCode": "const prevItem = $input.first();\n\nif (!prevItem.binary || !prevItem.binary.data) {\n  return [{ json: { valid: false, error: 'roster.json not found at /config/roster.json', entries: [], hash: '' } }];\n}\n\nlet raw;\ntry {\n  raw = Buffer.from(prevItem.binary.data.data, 'base64').toString('utf8');\n} catch (e) {\n  return [{ json: { valid: false, error: 'Failed to read roster.json: ' + e.message, entries: [], hash: '' } }];\n}\n\nif (!raw || raw.trim() === '') {\n  return [{ json: { valid: false, error: 'roster.json is empty', entries: [], hash: '' } }];\n}\n\nlet data;\ntry {\n  data = JSON.parse(raw);\n} catch (e) {\n  return [{ json: { valid: false, error: 'Invalid JSON: ' + e.message, entries: [], hash: '' } }];\n}\n\nconst errors = [];\n\nif (!data.team_lead || typeof data.team_lead !== 'object') {\n  errors.push('Missing \"team_lead\" object');\n} else {\n  if (!data.team_lead.name) errors.push('team_lead: missing name');\n  if (!data.team_lead.discord_id) errors.push('team_lead: missing discord_id');\n}\n\nif (!Array.isArray(data.developers) || data.developers.length === 0) {\n  errors.push('developers: must be a non-empty array (at least 1 required)');\n} else {\n  data.developers.forEach((dev, i) => {\n    if (!dev.name) errors.push('developers[' + i + ']: missing name');\n    if (!dev.discord_id) errors.push('developers[' + i + ']: missing discord_id');\n  });\n}\n\nif (!data.client || typeof data.client !== 'object') {\n  errors.push('Missing \"client\" object');\n} else {\n  if (!data.client.name) errors.push('client: missing name');\n  if (!data.client.discord_id) errors.push('client: missing discord_id');\n  if (!data.client.discord_channel_id) errors.push('client: missing discord_channel_id');\n}\n\nif (errors.length > 0) {\n  return [{ json: { valid: false, error: errors.join(' | '), entries: [], hash: '' } }];\n}\n\nlet h = 0x811c9dc5;\nfor (let i = 0; i < raw.length; i++) { h ^= raw.charCodeAt(i); h = (h * 0x01000193) >>> 0; }\nconst hash = h.toString(16).padStart(8, '0');\n\nconst entries = [\n  {\n    discord_id: data.team_lead.discord_id,\n    name: data.team_lead.name,\n    role: 'team_lead',\n    clockify_user_id: data.team_lead.clockify_user_id || null,\n    discord_channel_id: null\n  },\n  ...data.developers.map(dev => ({\n    discord_id: dev.discord_id,\n    name: dev.name,\n    role: 'developer',\n    clockify_user_id: dev.clockify_user_id || null,\n    discord_channel_id: null\n  })),\n  {\n    discord_id: data.client.discord_id,\n    name: data.client.name,\n    role: 'client',\n    clockify_user_id: null,\n    discord_channel_id: data.client.discord_channel_id\n  }\n];\n\nreturn [{ json: { valid: true, entries, hash } }];"
       }
     },
     {
@@ -110,15 +113,15 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.roster\n  (discord_id, name, role, clockify_user_id, discord_channel_id, source_hash, last_synced_at, active)\nVALUES ($1, $2, $3, $4, $5, $6, now(), true)\nON CONFLICT (discord_id) DO UPDATE SET\n  name               = EXCLUDED.name,\n  role               = EXCLUDED.role,\n  clockify_user_id   = EXCLUDED.clockify_user_id,\n  discord_channel_id = EXCLUDED.discord_channel_id,\n  source_hash        = EXCLUDED.source_hash,\n  last_synced_at     = now(),\n  active             = true,\n  updated_at         = now();",
-        "additionalFields": {
-          "queryParams": "={{ [\n  $json.discord_id,\n  $json.name,\n  $json.role,\n  $json.clockify_user_id,\n  $json.discord_channel_id,\n  $json.hash\n] }}"
+        "options": {
+          "queryReplacement": "={{ [\n  $json.discord_id,\n  $json.name,\n  $json.role,\n  $json.clockify_user_id,\n  $json.discord_channel_id,\n  $json.hash\n] }}"
         }
       }
     },
@@ -133,15 +136,15 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE pipemind.roster\nSET active = false, updated_at = now()\nWHERE source_hash != $1 AND active = true;",
-        "additionalFields": {
-          "queryParams": "={{ [ $('Split Entries').item.json.hash ] }}"
+        "options": {
+          "queryReplacement": "={{ [ $('Split Entries').first().json.hash ] }}"
         }
       }
     },
@@ -156,8 +159,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -176,8 +179,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -188,22 +191,32 @@
     {
       "id": "alert-tl",
       "name": "Alert TL — Config Error",
-      "type": "n8n-nodes-base.discord",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1320,
         420
       ],
-      "credentials": {
-        "discordBotApi": {
-          "id": "pipemindDiscord",
-          "name": "Pipemind Discord Bot"
-        }
-      },
+      "continueOnFail": true,
       "parameters": {
-        "operation": "sendMessage",
-        "channelId": "={{ $env.TEAM_LEAD_APPROVAL_CHANNEL_ID }}",
-        "content": "={{ '🚨 **Pipemind — Config Error**\\n\\n`roster.json` is missing or invalid. All workflows are paused until this is fixed.\\n\\n**Error:** ' + String($('Parse & Validate').item.json.error ?? '').slice(0, 300) + '\\n\\n**Fix:** Update `/config/roster.json` on the host and wait for the next 5-minute check (or reactivate Workflow 00 manually).' }}"
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TEAM_LEAD_APPROVAL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: String('🚨 **Pipemind — Config Error**\\n\\n`roster.json` is missing or invalid. All workflows are paused until this is fixed.\\n\\n**Error:** ' + String($('Parse & Validate').item.json.error ?? '').slice(0, 300) + '\\n\\n**Fix:** Update `/config/roster.json` on the host and wait for the next 5-minute check (or reactivate Workflow 00 manually).').slice(0,2000) }) }}"
       }
     },
     {
@@ -431,5 +444,6 @@
     {
       "name": "p0"
     }
-  ]
+  ],
+  "id": "V05pjiWtwChMb58y"
 }

@@ -36,8 +36,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -359,5 +359,6 @@
     {
       "name": "p0"
     }
-  ]
+  ],
+  "id": "NSh2GIhjl0y0eQc6"
 }
