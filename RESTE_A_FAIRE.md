@@ -1,64 +1,87 @@
-# Reste à faire — Pipemind Coordinator
+# Pipemind Coordinator — État du projet
 
-## Priorité immédiate — Débloquer le pipeline complet
+## Ce qui est fait
 
-### 1. Credentials manquants (workflow 05 s'arrête à Fetch GitHub Signals)
-- [ ] **GitHub token** : ajouter `GITHUB_TOKEN` valide dans `.env` + vérifier `GITHUB_OWNER` / `GITHUB_REPO`
-- [ ] **Jira** : ajouter `JIRA_BASE_URL`, `JIRA_TOKEN`, `JIRA_AUTH`, `JIRA_PROJECT_KEY` dans `.env`
-- [ ] **Ollama** : télécharger un modèle — `docker exec pipemind-coordinator-ollama-1 ollama pull llama3.2`
+### Infrastructure
+- [x] Stack Docker complète : n8n 1.91.3 + Postgres 16 + Ollama + discord-forwarder
+- [x] Schéma Postgres complet (`pipemind.*`) avec migrations 001-006
+- [x] Secrets via 1Password CLI (`op://` refs) — aucune vraie valeur dans les fichiers
+- [x] `config/roster.json` — source de vérité pour l'équipe et le client
 
-### 2. Google OAuth (workflow 09 — standup ingestion)
-- [ ] Finaliser l'app Google OAuth (actuellement en mode "test")
-- [ ] Ajouter l'email test dans Google Auth Platform → Audience
-- [ ] Se connecter dans n8n Settings → Credentials → Google Docs OAuth2
-- [ ] Récupérer le credential ID et l'ajouter aux noeuds qui l'utilisent dans workflow 09
+### Discord
+- [x] Service `discord-forwarder` : bridge entre Discord Gateway et n8n webhooks
+  - Messages `#client` → webhook `client-qa`
+  - Messages `#tl-approvals` → webhook `tl-interaction`
+  - DMs → webhook `dev-query`
+  - Nouveau membre → webhook `member-join`
+- [x] Bot Pipemind ajouté au serveur Discord et aux channels privés `#client` / `#tl-approvals`
 
-### 3. Variables d'environnement post-import
-Après chaque réimport de workflows, mettre à jour `.env` avec les nouveaux IDs :
-- [ ] `F03_WORKFLOW_ID` — ID du workflow 01 (Approval Gate)
-- [ ] `F08_WORKFLOW_ID` — ID du workflow 02 (Aggregation Boundary)
-- [ ] `F01_WORKFLOW_ID` — ID du workflow 04 (Client Report)
-- [ ] `DELIVERY_EXECUTOR_WORKFLOW_ID` — ID du workflow 01c
-- [ ] Redémarrer n8n après mise à jour : `docker compose restart n8n`
+### Workflows n8n (logique validée)
+Les workflows suivants reçoivent les messages Discord, vérifient l'identité via Postgres,
+et appliquent les règles de privacy — la logique est correcte jusqu'aux appels API externes.
 
-### 4. Activer les workflows restants
-- [ ] Workflow 01 — Approval Gate (sub-workflow, pas de trigger, activé via Execute Workflow)
-- [ ] Workflow 01b — Approval Resolution Listener (webhook, doit être actif pour recevoir les réactions Discord)
-- [ ] Workflow 01c — Delivery Executor (sub-workflow)
-- [ ] Workflow 02 — Aggregation Boundary (sub-workflow)
+| Workflow | Feature | Validé jusqu'à |
+|----------|---------|----------------|
+| 03 — TL Interaction | F-16 | Classify Intent (bloque sur Ollama) |
+| 05 — Client Q&A | F-02 | Fetch GitHub Signals (bloque sur token) |
+| 06 — Client Welcome | F-15 | Call F-03 Approval Gate (bloque sur F03_WORKFLOW_ID) |
+| 07 — Developer Query | F-17 | Route Message Type (bloque sur Ollama) |
+| 01 — Approval Gate | F-03 | Importé, logique complète, non testé en prod |
+| 01b — Approval Resolution | F-03 | Importé, non testé |
+| 01c — Delivery Executor | F-03 | Importé, non testé |
+| 02 — Aggregation Boundary | F-08 | Importé, non testé |
+
+### Corrections techniques majeures
+- Remplacement de `discordTrigger` (inexistant en n8n 1.91.3) par des webhook nodes
+- Bug n8n 1.91.3 : les IF nodes avec comparaison booléenne sont imprévisibles → remplacés par des Code nodes avec `return []`
+- Connexions IF inversées corrigées dans workflows 05, 06, 07
+
+---
+
+## Ce qui reste à faire
+
+### 1. Credentials manquants — priorité haute
+Sans ces credentials, les workflows s'arrêtent à mi-chemin.
+
+- [ ] **GitHub** : `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO` dans `.env`
+- [ ] **Jira** : `JIRA_BASE_URL`, `JIRA_TOKEN`, `JIRA_AUTH`, `JIRA_PROJECT_KEY` dans `.env`
+- [ ] **Ollama** : télécharger un modèle LLM
+  ```
+  docker exec pipemind-coordinator-ollama-1 ollama pull llama3.2
+  ```
+- [ ] **Google OAuth** (workflow 09 — standup ingestion)
+  - App Google OAuth en mode "test" → ajouter les emails dans Audience
+  - Se connecter dans n8n → Credentials → Google Docs OAuth2
+
+### 2. Variables d'environnement post-import
+Mettre à jour `.env` avec les IDs des workflows importés dans n8n, puis `docker compose restart n8n` :
+- [ ] `F03_WORKFLOW_ID` — ID du workflow 01 dans n8n
+- [ ] `F08_WORKFLOW_ID` — ID du workflow 02 dans n8n
+- [ ] `F01_WORKFLOW_ID` — ID du workflow 04 dans n8n
+- [ ] `DELIVERY_EXECUTOR_WORKFLOW_ID` — ID du workflow 01c dans n8n
+
+### 3. Activer les workflows restants dans n8n
+- [ ] Workflow 01b — Approval Resolution (doit être actif pour recevoir les réactions ✅/❌ dans Discord)
 - [ ] Workflow 04 — Client Report (schedule trigger vendredi 17h)
+- [ ] Workflows 08, 09, 10, 11, 12 — P1 features (standup, check-ins, time-log)
 
-### 5. Discord Privileged Intents à confirmer
-- [ ] Vérifier dans Discord Developer Portal → Bot → Privileged Gateway Intents :
-  - Message Content Intent ✓ (requis pour lire le contenu des messages)
-  - Server Members Intent ✓ (requis pour GUILD_MEMBER_ADD)
-
----
-
-## À tester end-to-end (une fois credentials OK)
-
-1. **Client Q&A** : envoyer message dans `#client` → draft dans `#tl-approvals` → réagir ✅ → réponse dans `#client`
-2. **Client Welcome** : nouveau membre rejoint → draft bienvenue dans `#tl-approvals` → approuver → message de bienvenue
-3. **Developer Query** : DM au bot → réponse directe
-4. **TL Interaction** : message dans `#tl-approvals` → workflow 03 classifie l'intent
-5. **Client Report** : déclencher workflow 04 manuellement → draft rapport dans `#tl-approvals`
+### 4. Tests end-to-end (une fois credentials configurés)
+- [ ] **Client Q&A** : message dans `#client` → draft dans `#tl-approvals` → réagir ✅ → réponse envoyée dans `#client`
+- [ ] **Client Welcome** : nouveau membre rejoint le serveur → draft de bienvenue → approbation → message envoyé
+- [ ] **Developer Query** : DM au bot → réponse directe dans le DM
+- [ ] **TL Interaction** : message dans `#tl-approvals` → intent classifié → action exécutée
+- [ ] **Client Report** : déclencher workflow 04 manuellement → draft rapport → approbation → envoi Gmail + Drive
 
 ---
 
-## Bugs IF node connus (à garder en tête)
+## Note technique — Bug IF nodes n8n 1.91.3
 
-Dans n8n 1.91.3, les IF nodes avec comparaison booléenne (`=== true`) se comportent de manière
-imprévisible. **Pattern à utiliser à la place :**
-- Dans les Code nodes : `return []` pour stopper, `return $input.all()` pour continuer
-- Éviter les IF nodes pour les checks de type boolean ou count
-
-Workflows déjà corrigés avec ce pattern : 03, 05, 06, 07
-Workflows à vérifier si d'autres IF nodes causent des problèmes : 01b, 03 (Response Clean?), 07 (Response Clean?, Draft Found?, etc.)
-
----
-
-## Infrastructure
-
-- [ ] Configurer backup automatique Postgres
-- [ ] Passer Ollama en mode GPU si disponible (décommenter section dans docker-compose.yml)
-- [ ] Mettre en place monitoring des workflows (alertes sur erreurs répétées)
+Les IF nodes avec `=== true` se comportent de façon imprévisible dans cette version.
+**Pattern à utiliser partout :**
+```javascript
+// Dans un Code node — à la place d'un IF node
+if (conditionPourStopper) return [];  // arrête l'exécution silencieusement
+return $input.all();                  // continue
+```
+Workflows déjà corrigés : 03, 05, 06, 07.
+Workflows à surveiller si de nouveaux IF nodes posent problème : 01b, 03 (`Response Clean?`), 07 (`Response Clean?`, `Draft Found?`).
