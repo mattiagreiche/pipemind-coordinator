@@ -4,23 +4,19 @@
     {
       "id": "discord-trigger",
       "name": "Discord Events",
-      "type": "n8n-nodes-base.discordTrigger",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [
         0,
         300
       ],
-      "credentials": {
-        "discordBotApi": {
-          "id": "pipemindDiscord",
-          "name": "Pipemind Discord Bot"
-        }
-      },
       "parameters": {
-        "events": [
-          "messageCreate"
-        ]
-      }
+        "httpMethod": "POST",
+        "path": "dev-query",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "a1b2c3d4-e5f6-7890-abcd-ef1234567804"
     },
     {
       "id": "filter-dm-message",
@@ -32,7 +28,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\nif (event.t !== 'MESSAGE_CREATE' && event.type !== 0) {\n  return [{ json: { skip: true } }];\n}\n// DMs have no guild_id; additionally check channel_type === 1 (DM) if available\nif (d.guild_id || (d.channel_type !== undefined && d.channel_type !== 1)) {\n  return [{ json: { skip: true } }];\n}\nif (d.author?.bot || d.webhook_id) {\n  return [{ json: { skip: true } }];\n}\nconst content = String(d.content || '').trim();\nif (!content) {\n  return [{ json: { skip: true } }];\n}\nreturn [{ json: {\n  skip: false,\n  content,\n  author_id: String(d.author?.id || ''),\n  channel_id: String(d.channel_id || '')\n} }];"
+        "jsCode": "const raw = $input.first().json;\nconst event = raw.body ?? raw;\nconst d = event.d ?? event;\n\nif (event.t !== 'MESSAGE_CREATE' && event.type !== 0) return [];\nif (!(!event.d?.guild_id && !d.guild_id)) return [];\nif (d.author?.bot || d.webhook_id) return [];\nconst content = String(d.content || '').trim();\nif (!content) return [];\n\nreturn [{ json: {\n  content,\n  author_id: d.author?.id,\n  channel_id: d.channel_id,\n  message_id: d.id\n} }];"
       }
     },
     {
@@ -81,8 +77,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -304,43 +300,63 @@
     {
       "id": "post-dm-reply",
       "name": "Post DM Reply",
-      "type": "n8n-nodes-base.discord",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         3500,
         450
       ],
-      "credentials": {
-        "discordBotApi": {
-          "id": "pipemindDiscord",
-          "name": "Pipemind Discord Bot"
-        }
-      },
+      "continueOnFail": true,
       "parameters": {
-        "operation": "sendMessage",
-        "channelId": "={{ $json.channel_id }}",
-        "content": "={{ $json.reply }}"
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: String($json.reply).slice(0,2000) }) }}"
       }
     },
     {
       "id": "post-audit-fallback",
       "name": "Post Audit Fallback",
-      "type": "n8n-nodes-base.discord",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         3500,
         750
       ],
-      "credentials": {
-        "discordBotApi": {
-          "id": "pipemindDiscord",
-          "name": "Pipemind Discord Bot"
-        }
-      },
+      "continueOnFail": true,
       "parameters": {
-        "operation": "sendMessage",
-        "channelId": "={{ $json.channel_id }}",
-        "content": "I can provide project-level context only — I'm not able to share individual attribution or name specific teammates. Feel free to ask about a feature area's overall progress instead."
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: \"I can provide project-level context only \\u2014 I'm not able to share individual attribution or name specific teammates. Feel free to ask about a feature area's overall progress instead.\" }) }}"
       }
     },
     {
@@ -414,15 +430,15 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT draft_id, discord_channel_id FROM pipemind.approval_drafts WHERE approver_discord_id = $1   AND content_type = 'time_entry'   AND status = 'pending'   AND created_at >= CURRENT_DATE::timestamptz   AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT 1;",
-        "additionalFields": {
-          "queryParams": "={{ JSON.stringify([$('Detect Approval Command').item.json.discord_id]) }}"
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Detect Approval Command').item.json.discord_id]) }}"
         }
       }
     },
@@ -505,15 +521,15 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts SET status = $2, edited_text = $3 WHERE draft_id = $1::uuid AND status = 'pending' RETURNING draft_id;",
-        "additionalFields": {
-          "queryParams": "={{ JSON.stringify([$json.draft_id, $json.status, $json.edited_text]) }}"
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$json.draft_id, $json.status, $json.edited_text]) }}"
         }
       }
     },
@@ -725,7 +741,7 @@
       "main": [
         [
           {
-            "node": "Skip?",
+            "node": "Fetch Roster",
             "type": "main",
             "index": 0
           }
@@ -776,14 +792,14 @@
       "main": [
         [
           {
-            "node": "Skip — Not Developer",
+            "node": "Detect Approval Command",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Detect Approval Command",
+            "node": "Skip — Not Developer",
             "type": "main",
             "index": 0
           }
@@ -1044,5 +1060,6 @@
     {
       "name": "f-17"
     }
-  ]
+  ],
+  "id": "2Au5d84nRxE5WPKK"
 }

@@ -4,23 +4,19 @@
     {
       "id": "discord-trigger",
       "name": "Discord Events",
-      "type": "n8n-nodes-base.discordTrigger",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [
         0,
         300
       ],
-      "credentials": {
-        "discordBotApi": {
-          "id": "pipemindDiscord",
-          "name": "Pipemind Discord Bot"
-        }
-      },
       "parameters": {
-        "events": [
-          "messageCreate"
-        ]
-      }
+        "httpMethod": "POST",
+        "path": "client-qa",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "a1b2c3d4-e5f6-7890-abcd-ef1234567802"
     },
     {
       "id": "filter-message",
@@ -32,7 +28,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\nif (event.t !== 'MESSAGE_CREATE' && event.type !== 0) {\n  return [{ json: { skip: true } }];\n}\nif (String(d.channel_id) !== String($env.CLIENT_CHANNEL_ID)) {\n  return [{ json: { skip: true } }];\n}\nif (d.author?.bot || d.webhook_id) {\n  return [{ json: { skip: true } }];\n}\nconst content = String(d.content || '').trim();\nif (!content) {\n  return [{ json: { skip: true } }];\n}\nreturn [{ json: {\n  skip: false,\n  content,\n  author_id: d.author?.id,\n  channel_id: d.channel_id,\n  message_id: d.id\n} }];"
+        "jsCode": "const raw = $input.first().json;\nconst event = raw.body ?? raw;\nconst d = event.d ?? event;\n\nif (event.t !== 'MESSAGE_CREATE' && event.type !== 0) return [];\nif (String(d.channel_id) !== String($env.CLIENT_CHANNEL_ID)) return [];\nif (d.author?.bot || d.webhook_id) return [];\nconst content = String(d.content || '').trim();\nif (!content) return [];\n\nreturn [{ json: {\n  content,\n  author_id: d.author?.id,\n  channel_id: d.channel_id,\n  message_id: d.id\n} }];"
       }
     },
     {
@@ -81,8 +77,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -149,8 +145,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -161,25 +157,14 @@
     {
       "id": "if-too-many-pending",
       "name": "Too Many Pending?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1750,
         600
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.pending_count }}",
-              "rightValue": 2,
-              "operator": {
-                "type": "number",
-                "operation": "gte"
-              }
-            }
-          ]
-        }
+        "jsCode": "const count = $input.first().json.pending_count;\nif (count >= 2) return []; // too many pending QA drafts, stop\nreturn $input.all();"
       }
     },
     {
@@ -343,8 +328,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -431,7 +416,7 @@
       "main": [
         [
           {
-            "node": "Skip?",
+            "node": "Fetch Client Identity",
             "type": "main",
             "index": 0
           }
@@ -482,14 +467,14 @@
       "main": [
         [
           {
-            "node": "Skip — Not Client",
+            "node": "Check Pending QA",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Check Pending QA",
+            "node": "Skip — Not Client",
             "type": "main",
             "index": 0
           }
@@ -509,13 +494,6 @@
     },
     "Too Many Pending?": {
       "main": [
-        [
-          {
-            "node": "Skip — Too Many Pending",
-            "type": "main",
-            "index": 0
-          }
-        ],
         [
           {
             "node": "Fetch GitHub Signals",
@@ -653,5 +631,6 @@
     {
       "name": "f-02"
     }
-  ]
+  ],
+  "id": "EOtzwaorp4NBURBY"
 }
