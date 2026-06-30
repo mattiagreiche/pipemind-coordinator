@@ -27,17 +27,6 @@
       }
     },
     {
-      "id": "ondemand-trigger",
-      "name": "On-Demand Trigger",
-      "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        450
-      ],
-      "parameters": {}
-    },
-    {
       "id": "check-pending",
       "name": "Check Pending Report",
       "type": "n8n-nodes-base.postgres",
@@ -48,8 +37,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -189,8 +178,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "pipemindPostgres",
-          "name": "Pipemind Postgres"
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
         }
       },
       "parameters": {
@@ -316,17 +305,6 @@
   ],
   "connections": {
     "Schedule Trigger": {
-      "main": [
-        [
-          {
-            "node": "Check Pending Report",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "On-Demand Trigger": {
       "main": [
         [
           {
@@ -494,5 +472,6 @@
     {
       "name": "f-01"
     }
-  ]
+  ],
+  "id": "rxJy2JxS3Yh03RAQ"
 }
