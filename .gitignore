@@ -11,6 +11,10 @@ roster.yml
 # Claude Code local settings — per-user, not shared
 .claude/settings.local.json
 
+# Real env file — contains op:// references resolved at runtime via 1Password CLI.
+# Copy .env.example to .env locally; never commit .env.
+.env
+
 # Docker volume data directories (if bind-mounted locally for debugging)
 postgres_data/
 n8n_data/
