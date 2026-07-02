@@ -1,0 +1,135 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: n8n
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pipemind-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:0.6.8
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - pipemind-internal
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    # Uncomment for GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  n8n:
+    image: n8nio/n8n:1.91.3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      # Database
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      # n8n core
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      # n8n auth (CRIT-01)
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      # n8n hardening
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_RUNNERS_ENABLED: "true"
+      # Integrations (resolved at runtime via 1Password CLI)
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      # Google OAuth covers Drive + Gmail + Calendar via same app credentials.
+      # Provide a refresh token so n8n can access all three Google services.
+      GOOGLE_REFRESH_TOKEN: ${GOOGLE_REFRESH_TOKEN}
+      DRIVE_FOLDER_ID: ${DRIVE_FOLDER_ID}
+      CLIENT_EMAIL: ${CLIENT_EMAIL}
+      TEAM_LEAD_APPROVAL_CHANNEL_ID: ${TEAM_LEAD_APPROVAL_CHANNEL_ID}
+      TL_CHANNEL_ID: ${TL_CHANNEL_ID}
+      CLIENT_CHANNEL_ID: ${CLIENT_CHANNEL_ID}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_OWNER: ${GITHUB_OWNER}
+      GITHUB_REPO: ${GITHUB_REPO}
+      JIRA_BASE_URL: ${JIRA_BASE_URL}
+      JIRA_TOKEN: ${JIRA_TOKEN}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY}
+      JIRA_AUTH: ${JIRA_AUTH}
+      CLOCKIFY_API_KEY: ${CLOCKIFY_API_KEY}
+      CLOCKIFY_WORKSPACE_ID: ${CLOCKIFY_WORKSPACE_ID}
+      # n8n workflow IDs (set after importing workflows into n8n)
+      F08_WORKFLOW_ID: ${F08_WORKFLOW_ID}
+      F03_WORKFLOW_ID: ${F03_WORKFLOW_ID}
+      F01_WORKFLOW_ID: ${F01_WORKFLOW_ID}
+      DELIVERY_EXECUTOR_WORKFLOW_ID: ${DELIVERY_EXECUTOR_WORKFLOW_ID}
+      # Schedule config
+      EOD_TIME: ${EOD_TIME}
+      REPORT_DAY_TIME: ${REPORT_DAY_TIME}
+      # Roster config path (mounted below)
+      ROSTER_CONFIG_PATH: /config/roster.json
+      # Allow fs module in Code nodes (needed for Read Roster File)
+      NODE_FUNCTION_ALLOW_BUILTIN: "fs"
+      # LLM endpoint (Ollama via OpenAI-compatible API — local only, SC-11)
+      LLM_BASE_URL: http://ollama:11434/v1
+      LLM_MODEL: ${LLM_MODEL}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./config:/config:ro
+    networks:
+      - pipemind-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  discord-forwarder:
+    build: ./discord-forwarder
+    restart: unless-stopped
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      TL_CHANNEL_ID: ${TL_CHANNEL_ID}
+      CLIENT_CHANNEL_ID: ${CLIENT_CHANNEL_ID}
+      N8N_WEBHOOK_BASE: http://n8n:5678/webhook
+    networks:
+      - pipemind-internal
+    depends_on:
+      - n8n
+
+networks:
+  pipemind-internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  ollama_data:
+  n8n_data:

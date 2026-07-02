@@ -1,0 +1,962 @@
+{
+  "name": "11 — F-07: Time-Log Offer (EOD)",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 17,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "guard-roster",
+      "name": "Guard: Check Roster Valid",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        250,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value FROM pipemind.system_state WHERE key = 'roster_valid';"
+      }
+    },
+    {
+      "id": "if-roster-valid",
+      "name": "If Roster Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "error-roster",
+      "name": "Error — Roster Not Valid",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        750,
+        100
+      ],
+      "parameters": {
+        "errorMessage": "F-07: Roster is not valid (SC-19). Run Workflow 00 (Startup / Config Validation) first."
+      }
+    },
+    {
+      "id": "fetch-developer-status",
+      "name": "Fetch Developer Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        750,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT r.discord_id, r.name, r.clockify_user_id, r.calendar_email, COALESCE((SELECT TRUE FROM pipemind.outreach_log ol WHERE ol.discord_id = r.discord_id AND ol.outreach_type = 'time_log_offer' AND ol.outreach_date = CURRENT_DATE LIMIT 1), FALSE) AS already_offered FROM pipemind.roster r WHERE r.active = TRUE AND r.role = 'developer' AND r.muted = FALSE ORDER BY r.name;"
+      }
+    },
+    {
+      "id": "aggregate-guard",
+      "name": "Aggregate & Guard Empty",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const rows = $input.all();\nif (rows.length === 0) {\n  return [];\n}\nconst developers = rows.map(r => ({\n  discord_id:       r.json.discord_id,\n  name:             r.json.name,\n  clockify_user_id: r.json.clockify_user_id || null,\n  calendar_email:   r.json.calendar_email   || null,\n  already_offered:  r.json.already_offered === true || r.json.already_offered === 'true'\n}));\nreturn [{ json: { developers } }];"
+      }
+    },
+    {
+      "id": "check-clockify-schedule",
+      "name": "Check Clockify Schedule",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        300
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/time-off/requests` }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start",
+              "value": "={{ new Date().toISOString().slice(0, 10) + 'T00:00:00Z' }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ new Date().toISOString().slice(0, 10) + 'T23:59:59Z' }}"
+            },
+            {
+              "name": "status",
+              "value": "APPROVED"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "strip-clockify-schedule",
+      "name": "Strip Clockify Schedule",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// H-02: reduce Clockify response to userId-only before n8n logs the payload.\nconst raw = $json;\nconst ids = [];\nlet ok = false;\ntry {\n  if (Array.isArray(raw)) {\n    ok = true;\n    for (const r of raw) {\n      if (r.userId) ids.push(String(r.userId));\n    }\n  }\n} catch (_) {}\nreturn [{ json: { clockify_ok: ok, clockify_off_ids: ids } }];"
+      }
+    },
+    {
+      "id": "check-calendar",
+      "name": "Check Google Calendar OOO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1750,
+        300
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "pipemindGoogleCalendar",
+          "name": "Pipemind Google Calendar"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Aggregate & Guard Empty').first().json.developers.filter(d => d.calendar_email).slice(0, 50).map(d => ({ id: d.calendar_email })) }) }}"
+      }
+    },
+    {
+      "id": "compute-actions",
+      "name": "Compute Actions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const developers = $('Aggregate & Guard Empty').first().json.developers;\n\n// Clockify time-off (primary source)\nconst schedData = $('Strip Clockify Schedule').first().json;\nconst schedOk = schedData.clockify_ok;\nconst schedUnavailable = new Set(schedData.clockify_off_ids);\n\n// Google Calendar OOO (secondary source) — SC-06a: stricter source wins\nconst calRaw = $('Check Google Calendar OOO').first()?.json;\nconst calOOO = new Set();\nlet calOk = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const [email, data] of Object.entries(calRaw.calendars)) {\n      if (Array.isArray(data.busy)) {\n        const isOOO = data.busy.some(p => {\n          const hours = (new Date(p.end) - new Date(p.start)) / 3_600_000;\n          return hours >= 6;\n        });\n        if (isOOO) calOOO.add(email.toLowerCase());\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-18: both sources unavailable → fail-safe, no contacts\nif (!schedOk && !calOk) {\n  return [{ json: { actions: [], sc18_failsafe: true } }];\n}\n\nconst actions = [];\nfor (const dev of developers) {\n  // Skip if already offered today (idempotent re-run guard)\n  if (dev.already_offered) continue;\n\n  // SC-06 / SC-06a: if either available source marks person as off, skip\n  let scheduled = true;\n  if (schedOk && dev.clockify_user_id) {\n    if (schedUnavailable.has(String(dev.clockify_user_id))) scheduled = false;\n  }\n  if (calOk && dev.calendar_email) {\n    if (calOOO.has(dev.calendar_email.toLowerCase())) scheduled = false;\n  }\n  if (!scheduled) continue;\n\n  // H-01: only discord_id forwarded; clockify_user_id needed for per-dev entry check\n  actions.push({ discord_id: dev.discord_id, clockify_user_id: dev.clockify_user_id });\n}\n\nreturn [{ json: { actions, sc18_failsafe: false } }];"
+      }
+    },
+    {
+      "id": "if-anyone-to-dm",
+      "name": "If Anyone To DM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2250,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.actions.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "log-run-status",
+      "name": "Log Run Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2500,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.system_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify(['timelog_last_run', $json.sc18_failsafe ? 'sc18_failsafe:' + new Date().toISOString() : 'no_contacts_needed:' + new Date().toISOString()]) }}"
+        }
+      }
+    },
+    {
+      "id": "if-sc18-failsafe",
+      "name": "If SC-18 Failsafe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2750,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ String($json.sc18_failsafe) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "notify-tl-sc18",
+      "name": "Notify TL: SC-18 Failsafe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3000,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Time-log offer skipped today: both Clockify and Google Calendar were unavailable. No developers were contacted (SC-18 fail-safe). Please verify the integrations are running.' }) }}"
+      }
+    },
+    {
+      "id": "split-action-items",
+      "name": "Split Into Action Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// H-01: only discord_id and clockify_user_id forwarded (name excluded)\nconst { actions } = $input.first().json;\nreturn actions.map(a => ({ json: { discord_id: a.discord_id, clockify_user_id: a.clockify_user_id } }));"
+      }
+    },
+    {
+      "id": "fetch-today-standup",
+      "name": "Fetch Today Standup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2750,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(sr.feature_area, 'General') AS feature_area FROM (SELECT $1::text AS discord_id) base LEFT JOIN pipemind.standup_records sr ON sr.discord_id = base.discord_id AND sr.standup_date = CURRENT_DATE;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Split Into Action Items').item.json.discord_id]) }}"
+        }
+      }
+    },
+    {
+      "id": "check-dev-clockify",
+      "name": "Check Dev Clockify Today",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3000,
+        300
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/user/${$('Split Into Action Items').item.json.clockify_user_id}/time-entries` }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start",
+              "value": "={{ new Date().toISOString().slice(0, 10) + 'T00:00:00Z' }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ new Date().toISOString().slice(0, 10) + 'T23:59:59Z' }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "build-draft-route",
+      "name": "Build Draft or Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3250,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const dev = $('Split Into Action Items').item.json;\nconst standupRow = $('Fetch Today Standup').item.json;\nconst clockifyResult = $json; // from Check Dev Clockify Today (may be error on continueOnFail)\n\nlet action = 'offer';\nlet infoMessage = '';\n\nif (dev.clockify_user_id) {\n  if (Array.isArray(clockifyResult) && clockifyResult.length > 0) {\n    // Developer already has time entries today — no offer needed\n    action = 'info_dm';\n    infoMessage = '[Pipemind] You already have time logged in Clockify for today — no action needed.';\n  } else if (!Array.isArray(clockifyResult)) {\n    // continueOnFail error — Clockify API unavailable for this developer\n    action = 'info_dm';\n    infoMessage = '[Pipemind] We could not check your Clockify time entries today. Please log your time manually if you have not already done so.';\n  }\n  // else: empty array → no entries yet → proceed with offer\n}\n// If no clockify_user_id, we always offer (developer not in Clockify)\n\nconst featureArea = standupRow.feature_area || 'General';\nconst draftHours = 8;\nconst draftText = '[Pipemind] End-of-day time log \\u2014 draft for today:\\n\\nProject area: ' + featureArea + '\\nHours: ' + draftHours + 'h (reply \"edit Xh\" to change)\\nDescription: ' + (featureArea !== 'General' ? 'Work on the ' + featureArea + ' feature' : 'General development work') + '\\n\\nReply:\\n\\u2022 yes \\u2014 log this entry to Clockify\\n\\u2022 edit 6h \\u2014 log with 6 hours instead\\n\\u2022 no \\u2014 skip for today';\n\nreturn [{ json: {\n  discord_id: dev.discord_id,\n  action,\n  info_message:     infoMessage,\n  draft_text:       draftText,\n  feature_area:     featureArea,\n  draft_hours:      draftHours\n} }];"
+      }
+    },
+    {
+      "id": "route-by-action",
+      "name": "Route By Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        3500,
+        300
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "offer",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "offer"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "info_dm",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "info_dm"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "open-info-dm",
+      "name": "Open Info DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3750,
+        100
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ recipient_id: $json.discord_id }) }}"
+      }
+    },
+    {
+      "id": "send-info-dm",
+      "name": "Send Info DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4000,
+        100
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$json.id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: $('Build Draft or Route').item.json.info_message }) }}"
+      }
+    },
+    {
+      "id": "log-outreach-info",
+      "name": "Log Outreach (Info)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4250,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.outreach_log (discord_id, outreach_type, outreach_date) VALUES ($1, 'time_log_offer', CURRENT_DATE) ON CONFLICT (discord_id, outreach_type, outreach_date) DO NOTHING;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Build Draft or Route').item.json.discord_id]) }}"
+        }
+      }
+    },
+    {
+      "id": "open-offer-dm",
+      "name": "Open Offer DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3750,
+        300
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ recipient_id: $json.discord_id }) }}"
+      }
+    },
+    {
+      "id": "create-approval-draft",
+      "continueOnFail": true,
+      "name": "Create Approval Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4000,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.approval_drafts (feature_tag, content_type, draft_text, boundary_audit_passed, approver_discord_id, discord_channel_id, context_json) VALUES ('F-07', 'time_entry', $1, TRUE, $2, $3, $4::jsonb) RETURNING draft_id, discord_channel_id;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Build Draft or Route').item.json.draft_text, $('Build Draft or Route').item.json.discord_id, $('Open Offer DM').item.json.id, JSON.stringify({ draft_hours: $('Build Draft or Route').item.json.draft_hours, feature_area: $('Build Draft or Route').item.json.feature_area })]) }}"
+        }
+      }
+    },
+    {
+      "id": "send-draft-dm",
+      "name": "Send Draft DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4250,
+        300
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Create Approval Draft').item.json.discord_channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: $('Build Draft or Route').item.json.draft_text }) }}"
+      }
+    },
+    {
+      "id": "log-outreach-offer",
+      "name": "Log Outreach (Offer)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        5000,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.outreach_log (discord_id, outreach_type, outreach_date) VALUES ($1, 'time_log_offer', CURRENT_DATE) ON CONFLICT (discord_id, outreach_type, outreach_date) DO NOTHING;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Build Draft or Route').item.json.discord_id]) }}"
+        }
+      }
+    },
+    {
+      "id": "save-message-id",
+      "name": "Save Message ID to Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4500,
+        300
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.approval_drafts SET discord_message_id = $1 WHERE draft_id = $2::uuid;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$json.id, $('Create Approval Draft').item.json.draft_id]) }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Guard: Check Roster Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard: Check Roster Valid": {
+      "main": [
+        [
+          {
+            "node": "If Roster Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Roster Valid?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Developer Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error — Roster Not Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Developer Status": {
+      "main": [
+        [
+          {
+            "node": "Aggregate & Guard Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate & Guard Empty": {
+      "main": [
+        [
+          {
+            "node": "Check Clockify Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Clockify Schedule": {
+      "main": [
+        [
+          {
+            "node": "Strip Clockify Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip Clockify Schedule": {
+      "main": [
+        [
+          {
+            "node": "Check Google Calendar OOO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Google Calendar OOO": {
+      "main": [
+        [
+          {
+            "node": "Compute Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Actions": {
+      "main": [
+        [
+          {
+            "node": "If Anyone To DM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Anyone To DM?": {
+      "main": [
+        [
+          {
+            "node": "Split Into Action Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Run Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Run Status": {
+      "main": [
+        [
+          {
+            "node": "If SC-18 Failsafe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If SC-18 Failsafe?": {
+      "main": [
+        [
+          {
+            "node": "Notify TL: SC-18 Failsafe",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Split Into Action Items": {
+      "main": [
+        [
+          {
+            "node": "Fetch Today Standup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Today Standup": {
+      "main": [
+        [
+          {
+            "node": "Check Dev Clockify Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Dev Clockify Today": {
+      "main": [
+        [
+          {
+            "node": "Build Draft or Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Draft or Route": {
+      "main": [
+        [
+          {
+            "node": "Route By Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Action": {
+      "offer": [
+        [
+          {
+            "node": "Open Offer DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "info_dm": [
+        [
+          {
+            "node": "Open Info DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Info DM": {
+      "main": [
+        [
+          {
+            "node": "Send Info DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Info DM": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach (Info)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Offer DM": {
+      "main": [
+        [
+          {
+            "node": "Create Approval Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Approval Draft": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach (Offer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Draft DM": {
+      "main": [
+        [
+          {
+            "node": "Save Message ID to Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Outreach (Offer)": {
+      "main": [
+        [
+          {
+            "node": "Send Draft DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "time-logging"
+    },
+    {
+      "name": "developer-dm"
+    },
+    {
+      "name": "p1"
+    }
+  ],
+  "id": "CJWhKbxJVpPJmuZT"
+}

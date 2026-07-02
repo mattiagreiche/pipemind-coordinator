@@ -1,0 +1,332 @@
+{
+  "name": "08 — F-14: Memory Reader (Sub-Workflow)",
+  "nodes": [
+    {
+      "id": "memory-input",
+      "name": "Memory Reader Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst VALID_PURPOSES = ['report', 'tl_internal', 'dev_self'];\nconst purpose = String(input.purpose || '');\nif (!VALID_PURPOSES.includes(purpose)) {\n  throw new Error('F-14: purpose must be one of: ' + VALID_PURPOSES.join(', '));\n}\n\nconst callerId = String(input.caller_discord_id || '');\n\n// Validate caller_discord_id format (snowflake: 17-19 digits) when provided\nif (callerId && !/^\\d{17,19}$/.test(callerId)) {\n  throw new Error('F-14: caller_discord_id must be a Discord snowflake (17-19 digits)');\n}\n\n// dev_self requires a caller\nif (purpose === 'dev_self' && !callerId) {\n  throw new Error('F-14: caller_discord_id is required for purpose=dev_self');\n}\n\nreturn [{ json: { purpose, safe_caller_id: callerId } }];"
+      }
+    },
+    {
+      "id": "guard-roster",
+      "name": "Guard: Check Roster Valid",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        500,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value FROM pipemind.system_state WHERE key = 'roster_valid';"
+      }
+    },
+    {
+      "id": "if-roster-valid",
+      "name": "Roster Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        750,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "error-roster",
+      "name": "Error — Roster Not Valid",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        100
+      ],
+      "parameters": {
+        "errorMessage": "F-14: Roster is not valid. Run Workflow 00 (Startup / Config Validation) first."
+      }
+    },
+    {
+      "id": "fetch-signals",
+      "name": "Fetch Project Signals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1000,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT feature_area, status_summary, has_blocker, source, last_primary_signal_at, updated_at FROM pipemind.project_signals ORDER BY updated_at DESC;"
+      }
+    },
+    {
+      "id": "fetch-qa",
+      "name": "Fetch QA History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1250,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT question_text, answer_text, feature_area, asked_at FROM pipemind.qa_history WHERE answer_text IS NOT NULL ORDER BY asked_at DESC LIMIT 5;"
+      }
+    },
+    {
+      "id": "fetch-standup",
+      "name": "Fetch Own Standup Records",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1500,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT standup_date, raw_text, feature_area, has_blocker FROM pipemind.standup_records WHERE discord_id = $1 AND standup_date >= CURRENT_DATE - INTERVAL '7 days' ORDER BY standup_date DESC LIMIT 7;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
+        }
+      }
+    },
+    {
+      "id": "fetch-blockers",
+      "name": "Fetch Blocker Count",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1750,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(DISTINCT discord_id) AS developer_count, COUNT(DISTINCT feature_area) AS area_count FROM pipemind.standup_records WHERE has_blocker = TRUE AND standup_date >= CURRENT_DATE - INTERVAL '7 days';"
+      }
+    },
+    {
+      "id": "verify-caller",
+      "name": "Verify Caller In Roster",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2000,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT discord_id, role FROM pipemind.roster WHERE discord_id = $1 AND active = true;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
+        }
+      }
+    },
+    {
+      "id": "assemble",
+      "name": "Assemble Project Picture",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const validated = $('Validate Input').item.json;\nconst purpose = validated.purpose;\n\n// Project signals — always safe, already aggregated (project-level)\nconst signalRows = $('Fetch Project Signals').all();\nconst featureAreas = signalRows.map(r => ({\n  area: r.json.feature_area,\n  status: r.json.status_summary,\n  has_blocker: r.json.has_blocker,\n  source: r.json.source,\n  last_signal: r.json.last_primary_signal_at\n}));\n\n// bootstrapping: no standup-sourced project signals have been built yet (F-14.6)\n// Supplementary signals may exist while bootstrapping is still true.\nconst bootstrapping = !featureAreas.some(a => a.source === 'standup');\n\n// Last standup date — derived from standup-sourced project signals\nconst standupSignals = featureAreas\n  .filter(a => a.source === 'standup' && a.last_signal)\n  .map(a => a.last_signal)\n  .sort();\nconst lastStandupDate = standupSignals.length > 0 ? standupSignals[standupSignals.length - 1] : null;\n\n// Recent Q&A — always safe (project-level)\nconst qaRows = $('Fetch QA History').all();\nconst recentQA = qaRows.map(r => ({\n  question: r.json.question_text,\n  answer: r.json.answer_text,\n  area: r.json.feature_area,\n  when: r.json.asked_at\n}));\n\nconst result = {\n  purpose,\n  bootstrapping,\n  project_picture: {\n    feature_areas: featureAreas,\n    last_standup_date: lastStandupDate,\n    recent_qa: recentQA\n  }\n};\n\n// dev_self: caller must be in active roster; include their own standup records only\n// SC-14: raw individual data returned only to the person themselves (HIGH-2)\nif (purpose === 'dev_self') {\n  const rosterRows = $('Verify Caller In Roster').all();\n  if (rosterRows.length === 0) {\n    throw new Error('F-14: caller_discord_id is not an active roster member');\n  }\n  const standupRows = $('Fetch Own Standup Records').all();\n  result.own_standups = standupRows.map(r => ({\n    date: r.json.standup_date,\n    text: r.json.raw_text,\n    area: r.json.feature_area,\n    has_blocker: r.json.has_blocker\n  }));\n}\n\n// tl_internal: anonymised blocker signals (counts only, no names)\n// SC-03 Tier 2: work-area signals without naming any individual\nif (purpose === 'tl_internal') {\n  const blockerRows = $('Fetch Blocker Count').all();\n  const bc = blockerRows[0]?.json ?? {};\n  result.internal_signals = {\n    active_blocker_developer_count: Number(bc.developer_count ?? 0),\n    active_blocker_area_count: Number(bc.area_count ?? 0)\n  };\n}\n\nreturn [{ json: result }];"
+      }
+    }
+  ],
+  "connections": {
+    "Memory Reader Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Guard: Check Roster Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard: Check Roster Valid": {
+      "main": [
+        [
+          {
+            "node": "Roster Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roster Valid?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Project Signals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error — Roster Not Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Project Signals": {
+      "main": [
+        [
+          {
+            "node": "Fetch QA History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch QA History": {
+      "main": [
+        [
+          {
+            "node": "Fetch Own Standup Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Own Standup Records": {
+      "main": [
+        [
+          {
+            "node": "Fetch Blocker Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Blocker Count": {
+      "main": [
+        [
+          {
+            "node": "Verify Caller In Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Caller In Roster": {
+      "main": [
+        [
+          {
+            "node": "Assemble Project Picture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "persistent-memory"
+    },
+    {
+      "name": "sub-workflow"
+    },
+    {
+      "name": "p1"
+    }
+  ],
+  "id": "oPAPftYuihv8ZjAI"
+}

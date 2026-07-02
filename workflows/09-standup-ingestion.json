@@ -1,0 +1,387 @@
+{
+  "name": "09 — F-04: Standup Transcript Ingestion",
+  "nodes": [
+    {
+      "id": "drive-trigger",
+      "name": "Google Drive Trigger",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "pipemindGoogleDrive",
+          "name": "Pipemind Google Drive"
+        }
+      },
+      "parameters": {
+        "triggerOn": "specificFolder",
+        "watchFor": "filesCreated",
+        "folderId": "={{ $env.DRIVE_FOLDER_ID }}"
+      }
+    },
+    {
+      "id": "download-file",
+      "name": "Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        250,
+        300
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "pipemindGoogleDrive",
+          "name": "Pipemind Google Drive"
+        }
+      },
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{ $json.id }}"
+      }
+    },
+    {
+      "id": "classify-sanitize",
+      "name": "Classify & SC-14 Sanitize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const triggerJson = $('Google Drive Trigger').item.json;\n\n// MED-2: sanitize fileName and mimeType before use in any log/error message\nconst fileName = String(triggerJson.name || '').replace(/[\\x00-\\x1F\\x7F]/g, '').slice(0, 255);\nconst mimeType = String(triggerJson.mimeType || '').replace(/[\\x00-\\x1F\\x7F]/g, '').slice(0, 255);\nconst fileId   = String(triggerJson.id   || '').replace(/[^A-Za-z0-9_\\-]/g, '').slice(0, 128);\n\n// F-04.2 stub: audio not yet supported (SC-10 compliant endpoint required first)\nconst AUDIO_MIMES = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'audio/x-m4a'];\nif (AUDIO_MIMES.includes(mimeType) || /\\.(mp3|m4a|wav)$/i.test(fileName)) {\n  throw new Error(\n    'F-04.2 NOT IMPLEMENTED: Audio transcription requires an in-house SC-10-compliant transcription endpoint. ' +\n    'fileName=[sanitized]'\n  );\n}\n\n// F-04.5: reject unsupported formats\nconst TEXT_MIMES = [\n  'text/plain', 'text/markdown', 'text/csv',\n  'application/vnd.google-apps.document',\n  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'\n];\nconst TEXT_EXTS = ['.txt', '.md', '.csv', '.docx'];\nconst ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));\nconst isText = TEXT_MIMES.includes(mimeType) || TEXT_EXTS.includes(ext);\n\nif (!isText) {\n  throw new Error(\n    'F-04.5: Unsupported file format — skipping. ' +\n    'ext=' + ext + ' mimeType=' + mimeType\n  );\n}\n\n// Decode binary content from Google Drive download node\nconst binaryProperty = $input.first().binary;\nlet rawText = '';\nif (binaryProperty && binaryProperty.data) {\n  const buf = binaryProperty.data.data || binaryProperty.data;\n  rawText = Buffer.isBuffer(buf)\n    ? buf.toString('utf-8')\n    : Buffer.from(buf, 'base64').toString('utf-8');\n} else if ($json.text) {\n  rawText = String($json.text);\n}\n\nif (!rawText.trim()) {\n  throw new Error('F-04: Transcript is empty after decoding.');\n}\n\n// SC-14: strip n8n expression injection delimiters and dangerous control characters\nconst transcript_text = rawText\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\}\\}/g, '} }')\n  .replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]/g, ' ')\n  .trim()\n  .slice(0, 50000);\n\nreturn [{ json: { transcript_text, file_name: fileName, file_id: fileId, mime_type: mimeType } }];"
+      }
+    },
+    {
+      "id": "fetch-roster",
+      "name": "Fetch Roster",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        750,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT discord_id, name, role FROM pipemind.roster WHERE active = true ORDER BY name;"
+      }
+    },
+    {
+      "id": "build-llm-extract",
+      "name": "Build LLM Extract Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// SC-11: verify LLM endpoint is private/local before sending transcript data\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst rawHost = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst host = rawHost.replace(/^\\[|\\]$/g, '');\nconst effectiveHost = host.replace(/^::ffff:/i, '');\nconst isPrivate =\n  effectiveHost === 'localhost' ||\n  effectiveHost === '0.0.0.0' ||\n  /^127\\./.test(effectiveHost) ||\n  /^10\\./.test(effectiveHost) ||\n  /^192\\.168\\./.test(effectiveHost) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(effectiveHost) ||\n  /^100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\./.test(effectiveHost) ||\n  /^169\\.254\\./.test(effectiveHost) ||\n  host === '::1' ||\n  /^fe80:/i.test(host) ||\n  /^fc[0-9a-f]{2}:/i.test(host) ||\n  /^fd[0-9a-f]{2}:/i.test(host) ||\n  /\\.(internal|local|corp|lan)$/i.test(effectiveHost) ||\n  !effectiveHost.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL appears to be a public endpoint. Transcript contains individual data — must stay on a private/local host.');\n}\n\nconst sanitized = $('Classify & SC-14 Sanitize').item.json;\nconst rosterRows = $('Fetch Roster').all();\n\n// MED-1 / SC-19: roster must have active members before proceeding\nconst teamMembers = rosterRows.filter(r => r.json.role !== 'client');\nif (teamMembers.length === 0) {\n  throw new Error('SC-19: Active team roster is empty — cannot process standup. Re-run Workflow 00 (Startup / Config Validation) to validate the roster.');\n}\n\n// Build roster name list (names only — no IDs, no roles — SC-03)\nconst rosterList = teamMembers.map(r => '- ' + r.json.name).join('\\n');\n\n// HIGH-1: extended SC-14 second pass — covers additional instruction-tuned model delimiters\n// Strips both line-start and mid-line System:/SYSTEM: variants; covers Llama-3, Gemma, Qwen patterns\nconst safeTranscript = String(sanitized.transcript_text || '')\n  .replace(/^(System:|SYSTEM:|###|\\[INST\\]|<\\|im_start\\|>|<\\|end_of_turn\\|>|<\\|eot_id\\|>|<s>|<\\/s>|<\\|begin_of_text\\|>|<\\|start_header_id\\|>)/gm, '  ')\n  .replace(/(System:|SYSTEM:)/g, '  ')\n  .slice(0, 40000);\n\nconst today = new Date().toISOString().slice(0, 10);\n\nconst systemPrompt = [\n  'You are a standup transcript analyzer. Extract structured meeting data.',\n  'OUTPUT: respond with ONLY valid JSON — no markdown fences, no explanation, no trailing text.',\n  '',\n  'REQUIRED JSON SCHEMA:',\n  '{',\n  '  \"standup_date\": \"YYYY-MM-DD\",',\n  '  \"updates\": [',\n  '    {',\n  '      \"roster_name\": \"exact name from ROSTER LIST below\",',\n  '      \"raw_text\": \"verbatim summary of what this person reported\",',\n  '      \"feature_area\": \"primary feature or work area they mentioned (alphanumeric and spaces only)\",',\n  '      \"has_blocker\": true or false',\n  '    }',\n  '  ],',\n  '  \"feature_summaries\": [',\n  '    {',\n  '      \"feature_area\": \"same area name as used in updates\",',\n  '      \"summary\": \"project-level progress summary for this area — NO names, NO pronouns, NO individual attribution\"',\n  '    }',\n  '  ]',\n  '}',\n  '',\n  'RULES (mandatory):',\n  '1. Only include people from the ROSTER LIST below who spoke in the transcript.',\n  '2. feature_summaries.summary must be 100% project-level — never attribute work to any individual.',\n  '3. standup_date: infer from transcript context; default to ' + today + '.',\n  '4. If content is garbled or no roster member can be attributed, use empty arrays for updates.',\n  '5. feature_area must be simple words without special characters.',\n  '',\n  'ROSTER LIST (match only these exact names):',\n  rosterList\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.1,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: 'Extract standup data from this transcript:\\n\\n' + safeTranscript }\n  ]\n} }];"
+      }
+    },
+    {
+      "id": "call-ollama-extract",
+      "name": "Call Ollama — Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}"
+      }
+    },
+    {
+      "id": "validate-match",
+      "name": "Validate & Match Roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst rosterRows = $('Fetch Roster').all();\n\n// Parse LLM JSON output\nlet parsed;\ntry {\n  const raw = String(response.choices?.[0]?.message?.content ?? '').trim();\n  const jsonStr = raw.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\n  parsed = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error('F-04.3: LLM output is not valid JSON — transcript may be garbled. Error: ' + e.message);\n}\n\nif (!Array.isArray(parsed.updates))          parsed.updates          = [];\nif (!Array.isArray(parsed.feature_summaries)) parsed.feature_summaries = [];\nif (!parsed.standup_date || !/^\\d{4}-\\d{2}-\\d{2}$/.test(parsed.standup_date)) {\n  parsed.standup_date = new Date().toISOString().slice(0, 10);\n}\n\n// Build normalised name → discord_id map (team members only)\nconst normalize = s => String(s).normalize('NFKD').replace(/[^A-Za-z0-9]/g, '').toLowerCase();\nconst rosterMap = {};\nfor (const r of rosterRows) {\n  if (r.json.role !== 'client') {\n    rosterMap[normalize(r.json.name)] = r.json.discord_id;\n  }\n}\n\n// Match each update to a discord_id\nconst matchedUpdates = [];\nfor (const u of parsed.updates) {\n  const discordId = rosterMap[normalize(String(u.roster_name || ''))];\n  if (!discordId) continue;\n\n  const area = String(u.feature_area || 'general')\n    .replace(/[^A-Za-z0-9 \\-_]/g, '').slice(0, 100).trim() || 'general';\n\n  // SC-14: sanitise raw_text before storing in standup_records\n  const rawText = String(u.raw_text || '')\n    .replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]/g, ' ')\n    .trim().slice(0, 4000);\n  if (!rawText) continue;\n\n  matchedUpdates.push({\n    discord_id: discordId,\n    standup_date: parsed.standup_date,\n    raw_text: rawText,\n    feature_area: area,\n    has_blocker: Boolean(u.has_blocker)\n  });\n}\n\n// F-04.3: nothing attributable → surface error\nif (matchedUpdates.length === 0) {\n  throw new Error(\n    'F-04.3: No attributable updates found. Transcript may be garbled, incomplete, ' +\n    'or contain no names matching the active roster.'\n  );\n}\n\n// Normalised name list for HIGH-1 post-LLM scan\nconst normalizedRosterNames = Object.keys(rosterMap).filter(n => n.length >= 3);\n\n// Word-boundary helper (same logic as F-08 Pattern Audit)\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\n// Sanitise feature_summaries — strip injection delimiters, apply HIGH-1 roster-name scan\nconst matchedSummaries = parsed.feature_summaries\n  .filter(s => s.feature_area && s.summary)\n  .map(s => ({\n    feature_area: String(s.feature_area)\n      .replace(/[^A-Za-z0-9 \\-_]/g, '').slice(0, 100).trim() || 'general',\n    summary: String(s.summary)\n      .replace(/^(System:|SYSTEM:|###|\\[INST\\])/gm, '  ')\n      .replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]/g, ' ')\n      .trim().slice(0, 2000)\n  }))\n  .filter(s => s.feature_area && s.summary)\n  .map(s => {\n    // HIGH-1: if a roster name appears in a summary, replace with safe fallback\n    // F-08 will do a full boundary audit on the combined text regardless\n    const summaryNorm = normalize(s.summary);\n    const hasName = normalizedRosterNames.some(normName => {\n      const parts = normName.split(/(?=[A-Z])/).join(' ').split(/\\s+/).filter(p => p.length >= 3);\n      return parts.some(part => hasWordBoundary(summaryNorm, part));\n    });\n    if (hasName) {\n      return {\n        feature_area: s.feature_area,\n        summary: 'Work on the ' + s.feature_area + ' feature progressed this standup period.'\n      };\n    }\n    return s;\n  });\n\n// Fallback: if LLM produced no summaries, create a minimal project-level one\nif (matchedSummaries.length === 0) {\n  matchedSummaries.push({\n    feature_area: 'general',\n    summary: 'Standup completed. Feature areas not specified in this transcript.'\n  });\n}\n\nreturn [{ json: {\n  standup_date: parsed.standup_date,\n  updates: matchedUpdates,\n  feature_summaries: matchedSummaries\n} }];"
+      }
+    },
+    {
+      "id": "build-standup-insert",
+      "name": "Build Standup Insert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// HIGH-2: duplicate check removed — ON CONFLICT (discord_id, standup_date) DO NOTHING\n// is the idempotency guarantee. Date-only pre-check would block legitimate partial transcripts.\nconst validated = $('Validate & Match Roster').item.json;\nconst updates = validated.updates;\n\nif (!updates || updates.length === 0) {\n  throw new Error('F-04: No matched updates to insert — should have been caught earlier.');\n}\n\n// Multi-row parameterized INSERT (no user data in query string — only $N placeholders)\nconst params = [];\nconst placeholders = updates.map((u, i) => {\n  const b = i * 5;\n  params.push(\n    u.discord_id,\n    u.standup_date,\n    u.raw_text,\n    u.feature_area,\n    u.has_blocker\n  );\n  return `($${b+1}, $${b+2}::DATE, $${b+3}, $${b+4}, $${b+5})`;\n});\n\nconst standup_query = [\n  'INSERT INTO pipemind.standup_records (discord_id, standup_date, raw_text, feature_area, has_blocker)',\n  'VALUES ' + placeholders.join(', '),\n  'ON CONFLICT (discord_id, standup_date) DO NOTHING;'\n].join('\\n');\n\nreturn [{ json: { standup_query, standup_params: params } }];"
+      }
+    },
+    {
+      "id": "insert-standup-records",
+      "name": "Insert Standup Records",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2000,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.standup_query }}",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json.standup_params) }}"
+        }
+      }
+    },
+    {
+      "id": "build-f08-input",
+      "name": "Build F-08 Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const validated = $('Validate & Match Roster').item.json;\nconst summaries = validated.feature_summaries;\nconst standupDate = validated.standup_date;\n\n// Combine feature summaries into one text for F-08 boundary audit\n// Format: \"feature_area: summary\" per line, separated by double newline\n// CRIT-1: Build Signal Upsert will parse f08Result.draft_text back into this format\nconst combined = summaries\n  .map(s => s.feature_area + ': ' + s.summary)\n  .join('\\n\\n');\n\nif (!String($env.F08_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-04: n8n variable F08_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\n\nreturn [{ json: {\n  draft_text: combined,\n  content_type: 'standup_summary',\n  feature_tag: 'F-04',\n  standup_date: standupDate\n} }];"
+      }
+    },
+    {
+      "id": "call-f08",
+      "name": "Call F-08 — Aggregation Boundary",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        2500,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $env.F08_WORKFLOW_ID }}",
+          "mode": "id"
+        },
+        "waitForSubWorkflow": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "build-signal-upsert",
+      "name": "Build Signal Upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2750,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const f08Result = $input.first().json;\nif (!f08Result.boundary_audit_passed) {\n  throw new Error('F-04: F-08 boundary audit did not return boundary_audit_passed. Cannot upsert project_signals.');\n}\n\nconst buildInput = $('Build F-08 Input').item.json;\nconst standupDate = buildInput.standup_date;\nconst validated   = $('Validate & Match Roster').item.json;\n\n// CRIT-1: use f08Result.draft_text (possibly rewritten by F-08 Ollama) — never the originals\n// The combined text format is \"feature_area: summary\" per block, joined by double newline\nconst cleanSummaries = f08Result.draft_text\n  .split('\\n\\n')\n  .map(block => {\n    const colonIdx = block.indexOf(': ');\n    if (colonIdx === -1) return null;\n    return {\n      feature_area: block.slice(0, colonIdx)\n        .replace(/[^A-Za-z0-9 \\-_]/g, '').slice(0, 100).trim(),\n      summary: block.slice(colonIdx + 2).trim().slice(0, 2000)\n    };\n  })\n  .filter(s => s && s.feature_area && s.summary);\n\nif (cleanSummaries.length === 0) {\n  throw new Error('F-04: No valid feature summaries after F-08 boundary rewrite. Cannot upsert project_signals.');\n}\n\n// Derive has_blocker per feature area from standup updates (area-level, not person-level — SC-03)\nconst blockerByArea = {};\nfor (const u of (validated.updates || [])) {\n  if (u.has_blocker) blockerByArea[u.feature_area] = true;\n}\n\n// Multi-row parameterized UPSERT (no user data in query string — only $N placeholders)\n// F-14.5: newer primary signal wins (WHERE clause enforces this)\nconst params = [];\nconst placeholders = cleanSummaries.map((s, i) => {\n  const b = i * 4;\n  params.push(\n    s.feature_area,\n    s.summary,\n    Boolean(blockerByArea[s.feature_area]),\n    standupDate + 'T00:00:00Z'\n  );\n  return `($${b+1}, $${b+2}, $${b+3}, 'standup', $${b+4}::TIMESTAMPTZ)`;\n});\n\nconst signal_query = [\n  'INSERT INTO pipemind.project_signals (feature_area, status_summary, has_blocker, source, last_primary_signal_at)',\n  'VALUES ' + placeholders.join(', '),\n  'ON CONFLICT (feature_area) DO UPDATE SET',\n  '  status_summary          = EXCLUDED.status_summary,',\n  '  has_blocker             = EXCLUDED.has_blocker,',\n  '  source                  = \\'standup\\',',\n  '  last_primary_signal_at  = EXCLUDED.last_primary_signal_at,',\n  '  updated_at              = now()',\n  'WHERE pipemind.project_signals.last_primary_signal_at IS NULL',\n  '   OR EXCLUDED.last_primary_signal_at > pipemind.project_signals.last_primary_signal_at;'\n].join('\\n');\n\nreturn [{ json: { signal_query, signal_params: params } }];"
+      }
+    },
+    {
+      "id": "upsert-project-signals",
+      "name": "Upsert Project Signals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3000,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.signal_query }}",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json.signal_params) }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Google Drive Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Classify & SC-14 Sanitize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify & SC-14 Sanitize": {
+      "main": [
+        [
+          {
+            "node": "Fetch Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Roster": {
+      "main": [
+        [
+          {
+            "node": "Build LLM Extract Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build LLM Extract Request": {
+      "main": [
+        [
+          {
+            "node": "Call Ollama — Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama — Extract": {
+      "main": [
+        [
+          {
+            "node": "Validate & Match Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Match Roster": {
+      "main": [
+        [
+          {
+            "node": "Build Standup Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standup Insert": {
+      "main": [
+        [
+          {
+            "node": "Insert Standup Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Standup Records": {
+      "main": [
+        [
+          {
+            "node": "Build F-08 Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build F-08 Input": {
+      "main": [
+        [
+          {
+            "node": "Call F-08 — Aggregation Boundary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call F-08 — Aggregation Boundary": {
+      "main": [
+        [
+          {
+            "node": "Build Signal Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Signal Upsert": {
+      "main": [
+        [
+          {
+            "node": "Upsert Project Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "standup-ingestion"
+    },
+    {
+      "name": "p1"
+    }
+  ],
+  "id": "lv0cAvAOKaLTWWJa"
+}

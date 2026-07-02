@@ -1,0 +1,24 @@
+{
+  "team_lead": {
+    "name": "Alice Martin",
+    "discord_id": "111111111111111111",
+    "clockify_user_id": "abc123"
+  },
+  "developers": [
+    {
+      "name": "Bob Tremblay",
+      "discord_id": "222222222222222222",
+      "clockify_user_id": "def456"
+    },
+    {
+      "name": "Carol Dupont",
+      "discord_id": "333333333333333333",
+      "clockify_user_id": "ghi789"
+    }
+  ],
+  "client": {
+    "name": "Client Name",
+    "discord_id": "444444444444444444",
+    "discord_channel_id": "555555555555555555"
+  }
+}

@@ -1,0 +1,364 @@
+{
+  "name": "02 — F-08: Aggregation Boundary (Sub-Workflow)",
+  "nodes": [
+    {
+      "id": "boundary-input",
+      "name": "Aggregation Boundary Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nif (typeof input.draft_text !== 'string' || input.draft_text.trim() === '') {\n  throw new Error('F-08: draft_text must be a non-empty string');\n}\nif (typeof input.content_type !== 'string' || !input.content_type) {\n  throw new Error('F-08: content_type is required');\n}\nif (typeof input.feature_tag !== 'string' || !input.feature_tag) {\n  throw new Error('F-08: feature_tag is required');\n}\nreturn [{ json: input }];"
+      }
+    },
+    {
+      "id": "fetch-roster",
+      "name": "Fetch Roster",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        500,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name, discord_id FROM pipemind.roster WHERE active = true;"
+      }
+    },
+    {
+      "id": "pattern-audit",
+      "name": "Pattern Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const input = $('Aggregation Boundary Input').item.json;\nconst rosterRows = $('Fetch Roster').all();\n\nconst text = String(input.draft_text || '');\nconst violations = [];\n\n// MED-01: normalize — NFKD decompose then strip non-ASCII handles diacritics\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst textNorm = normalize(text);\n\n// MED-01: word-boundary helper (no length gate)\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\n// Check roster member names\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/\\s+/).filter(p => p.length > 0);\n  for (const part of parts) {\n    if (hasWordBoundary(textNorm, part)) {\n      violations.push('Individual name detected: [REDACTED]'); // MED-03: no name in log\n      break;\n    }\n  }\n}\n\n// Check Discord snowflake IDs\nconst ids = rosterRows.map(r => String(r.json.discord_id || ''));\n// MED-02: also check digit-only version to catch formatted IDs\nconst digitsOnly = text.replace(/\\D/g, '');\nconst snowflakes = textNorm.match(/\\b\\d{17,19}\\b/g) || [];\nfor (const id of ids) {\n  if (!id) continue;\n  if (snowflakes.includes(id) || (id.length >= 17 && digitsOnly.includes(id))) {\n    violations.push('Discord ID detected: [REDACTED]'); // MED-03\n    break;\n  }\n}\n\n// Per-individual metric patterns\nconst metricPatterns = [\n  [/\\b\\d+\\s*commits?\\b/i, 'commit count'],\n  [/\\b\\d+\\s*(hours?|hrs?)\\s*(logged|tracked|worked)/i, 'individual hours'],\n  [/logged\\s+\\d+\\s*(hours?|hrs?)/i, 'individual hours (logged)'],\n  [/\\b(assigned to|done by|completed by|written by|handled by)\\s+\\w+/i, 'attribution phrase'],\n  [/\\b(he|she|they)\\s+(committed|pushed|closed|opened|wrote|fixed|reviewed|built)\\b/i, 'individual pronoun'],\n];\n\nfor (const [re, label] of metricPatterns) {\n  if (re.test(text)) {\n    violations.push('Pattern matched: ' + label);\n  }\n}\n\nreturn [{ json: {\n  clean: violations.length === 0,\n  violations,\n  draft_text: input.draft_text,\n  content_type: input.content_type,\n  feature_tag: input.feature_tag\n} }];"
+      }
+    },
+    {
+      "id": "if-clean",
+      "name": "Boundary Clean?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1000,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.clean }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "return-clean",
+      "name": "Return Clean",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1250,
+        100
+      ],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            {
+              "name": "draft_text",
+              "value": "={{ $('Pattern Audit').item.json.draft_text }}",
+              "type": "string"
+            },
+            {
+              "name": "boundary_audit_passed",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "build-ollama-request",
+      "name": "Build Ollama Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        500
+      ],
+      "parameters": {
+        "jsCode": "const audit = $input.first().json;\n\n// HIGH-02: SC-11 — Refuse to send PII to a public LLM endpoint\nconst lmUrl = String($env.LLM_BASE_URL || '');\nconst rawHost = lmUrl.replace(/^https?:\\/\\//, '').split(/[/:?#]/)[0];\nconst host = rawHost.replace(/^\\[|\\]$/g, '');\nconst effectiveHost = host.replace(/^::ffff:/i, '');\nconst isPrivate =\n  effectiveHost === 'localhost' ||\n  effectiveHost === '0.0.0.0' ||\n  /^127\\./.test(effectiveHost) ||\n  /^10\\./.test(effectiveHost) ||\n  /^192\\.168\\./.test(effectiveHost) ||\n  /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(effectiveHost) ||\n  /^100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\./.test(effectiveHost) ||\n  /^169\\.254\\./.test(effectiveHost) ||\n  host === '::1' ||\n  /^fe80:/i.test(host) ||\n  /^fc[0-9a-f]{2}:/i.test(host) ||\n  /^fd[0-9a-f]{2}:/i.test(host) ||\n  /\\.(internal|local|corp|lan)$/i.test(effectiveHost) ||\n  !effectiveHost.includes('.');\nif (!isPrivate) {\n  throw new Error('SC-11 VIOLATION: LLM_BASE_URL appears to be a public endpoint. Set it to a private/local host.');\n}\n\n// HIGH-03: Sanitize draft_text — strip common LLM injection delimiters\nconst safeDraft = String(audit.draft_text || '')\n  .replace(/^(System:|SYSTEM:|###|\\[INST\\])/gm, '  ')\n  .slice(0, 4000);\n\n// MED-03: pass violation count only (not name strings) in system prompt\nconst violationCount = audit.violations.length;\n\nconst systemPrompt = [\n  'You are a content safety editor. Rewrite the provided text to be 100% project-level with zero individual attribution.',\n  '',\n  'ABSOLUTE RULES:',\n  '1. Never mention any person name, Discord handle, or numeric ID.',\n  '2. Never attribute commits, hours, tasks, opinions, or blockers to any specific person.',\n  '3. Use only feature-area or project-level framing:',\n  '   Good: \"The authentication feature has progressed this week.\"',\n  '   Bad:  \"Alice fixed the login bug and committed 12 times.\"',\n  '4. Preserve all factual project-level information — only remove the individual layer.',\n  '5. Return ONLY the rewritten text. No preamble, no explanation, no quotation marks.',\n  '',\n  violationCount + ' violation(s) detected — rewrite the text below to remove all individual attribution.'\n].join('\\n');\n\nreturn [{ json: {\n  model: $env.LLM_MODEL,\n  temperature: 0.2,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user',   content: 'Rewrite to remove all individual attribution:\\n\\n' + safeDraft }\n  ]\n} }];"
+      }
+    },
+    {
+      "id": "call-ollama",
+      "name": "Call Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        500
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}"
+      }
+    },
+    {
+      "id": "extract-reaudit",
+      "name": "Extract & Re-Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        500
+      ],
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst rewritten = String(response.choices?.[0]?.message?.content ?? '').trim();\n\nif (!rewritten) {\n  return [{ json: { clean: false, violations: ['Ollama returned empty response'], draft_text: '' } }];\n}\n\nconst rosterRows = $('Fetch Roster').all();\nconst violations = [];\n\n// MED-01: same normalization as Pattern Audit\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst textNorm = normalize(rewritten);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/\\s+/).filter(p => p.length > 0);\n  for (const part of parts) {\n    if (hasWordBoundary(textNorm, part)) {\n      violations.push('Name still present after rewrite: [REDACTED]');\n      break;\n    }\n  }\n}\n\nconst ids = rosterRows.map(r => String(r.json.discord_id || ''));\nconst digitsOnly = rewritten.replace(/\\D/g, '');\nconst snowflakes = textNorm.match(/\\b\\d{17,19}\\b/g) || [];\nfor (const id of ids) {\n  if (!id) continue;\n  if (snowflakes.includes(id) || (id.length >= 17 && digitsOnly.includes(id))) {\n    violations.push('Discord ID still present after rewrite: [REDACTED]');\n    break;\n  }\n}\n\n// HIGH-01: full metric pattern set (same as Pattern Audit — catches Ollama hallucinations)\nconst metricPatterns = [\n  [/\\b\\d+\\s*commits?\\b/i, 'commit count'],\n  [/\\b\\d+\\s*(hours?|hrs?)\\s*(logged|tracked|worked)/i, 'individual hours'],\n  [/logged\\s+\\d+\\s*(hours?|hrs?)/i, 'individual hours (logged)'],\n  [/\\b(assigned to|done by|completed by|written by|handled by)\\s+\\w+/i, 'attribution phrase'],\n  [/\\b(he|she|they)\\s+(committed|pushed|closed|opened|wrote|fixed|reviewed|built)\\b/i, 'individual pronoun'],\n];\n\nfor (const [re, label] of metricPatterns) {\n  if (re.test(rewritten)) {\n    violations.push('Pattern still present after rewrite: ' + label);\n  }\n}\n\nreturn [{ json: {\n  clean: violations.length === 0,\n  violations,\n  draft_text: rewritten\n} }];"
+      }
+    },
+    {
+      "id": "if-rewrite-clean",
+      "name": "Rewrite Clean?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        500
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.clean }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "return-rewritten",
+      "name": "Return Rewritten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2250,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            {
+              "name": "draft_text",
+              "value": "={{ $json.draft_text }}",
+              "type": "string"
+            },
+            {
+              "name": "boundary_audit_passed",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "error-boundary",
+      "name": "Error — Boundary Unresolvable",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2250,
+        700
+      ],
+      "parameters": {
+        "errorMessage": "Aggregation boundary violation could not be resolved after Ollama rewrite. The draft still contains individual attribution. Re-examine the upstream signal assembly and ensure no named data is passed into the draft."
+      }
+    }
+  ],
+  "connections": {
+    "Aggregation Boundary Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Fetch Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Roster": {
+      "main": [
+        [
+          {
+            "node": "Pattern Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pattern Audit": {
+      "main": [
+        [
+          {
+            "node": "Boundary Clean?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Boundary Clean?": {
+      "main": [
+        [
+          {
+            "node": "Return Clean",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Ollama Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ollama Request": {
+      "main": [
+        [
+          {
+            "node": "Call Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama": {
+      "main": [
+        [
+          {
+            "node": "Extract & Re-Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract & Re-Audit": {
+      "main": [
+        [
+          {
+            "node": "Rewrite Clean?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rewrite Clean?": {
+      "main": [
+        [
+          {
+            "node": "Return Rewritten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error — Boundary Unresolvable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "aggregation-boundary"
+    },
+    {
+      "name": "sub-workflow"
+    },
+    {
+      "name": "p0"
+    }
+  ],
+  "id": "NSh2GIhjl0y0eQc6"
+}
