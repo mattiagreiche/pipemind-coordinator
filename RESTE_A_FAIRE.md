@@ -90,7 +90,10 @@ Findings par sévérité :
       indirectement via le workflow 01 (Approval Gate) partagé, qui audite automatiquement tout
       draft `content_type IN ('report','qa_reply','welcome')` avant que le TL le voie. Le finding
       original comparait à tort à l'audit inline de 03 sans tracer ce chemin. Aucun fix de code.
-- [ ] `05-client-qa` node `Too Many Pending?` perd silencieusement le message client si ≥2 drafts en attente
+- [x] `05-client-qa` node `Too Many Pending?` perd silencieusement le message client si ≥2 drafts
+      en attente — corrigé, alerte maintenant le TL (sans contenu client) au lieu de `return []`
+      sans route ; le NoOp `Skip — Too Many Pending` était en fait déjà orphelin, retiré —
+      commit `81fa24a`
 - [ ] `01c-delivery-executor` — race condition possible sur retry concurrent (SELECT-then-INSERT
       au lieu de INSERT...RETURNING avant l'action externe)
 - [ ] `11-time-log-offer` — `Log Outreach` s'exécute avant confirmation d'envoi DM
