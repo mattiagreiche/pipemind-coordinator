@@ -23,19 +23,19 @@ credentials en place.
 
 ## Prochaine session — reprendre ici
 
-Tous les CRIT (2) et HIGH (5) de l'audit du 2026-07-04 sont réglés, vérifiés par l'agent
-sécurité, et committés. Il reste 2 MEDIUM ouverts (non bloquants, à faire un par un comme
-d'habitude — fix, agent sécurité, commit) :
+Tous les CRIT (2), HIGH (5) et MEDIUM (8) de l'audit du 2026-07-04 sont réglés (ou vérifiés
+faux positifs), agent sécurité + commit à chaque fois. Il reste :
 
-1. [ ] F-08.3 non mitigé pour petites équipes — `08-memory-reader` renvoie le compte brut de
-   développeurs bloqués sans seuil, ce qui équivaut à une attribution nommée sur une équipe de 1-2
-2. [ ] `dm_channel_id` périmé dans `01b` — ~10 nodes utilisent une valeur stockée sans la
-   revalider (pattern "reopen before send" déjà fait dans 10/11/12, à appliquer pareil ici)
+1. [ ] **Nouveau (trouvé le 2026-07-05, pas dans l'audit initial)** : `08-memory-reader`,
+   `feature_areas[].has_blocker` expose le blocage par zone fonctionnelle **nommée** sans
+   masquage petite équipe (contrairement à `active_blocker_developer_count`, déjà masqué). Sur
+   une équipe où chaque zone a un seul propriétaire connu du TL, ça re-identifie tout autant.
+   F-08.3 n'est donc que partiellement refermé.
+2. [ ] Les LOW cosmétiques (liste plus bas — nodes orphelins, colonne `qa_history` inutilisée,
+   pas d'Expiry Janitor générique).
 
-Puis les LOW (cosmétiques, pas urgents — liste complète plus bas).
-
-Une fois les MEDIUM/LOW traités (ou si on décide de les laisser), le vrai blocage pour tester en
-prod reste les **credentials manquants** (GitHub, Jira, Google OAuth) et les **IDs de workflow à
+Une fois ça traité (ou si on décide de le laisser), le vrai blocage pour tester en prod reste les
+**credentials manquants** (GitHub et Google faits, Jira à confirmer) et les **IDs de workflow à
 mettre à jour dans `.env`** — voir sections 1 et 2 plus bas, inchangées depuis le début.
 
 ## Ce qui est fait
@@ -150,8 +150,17 @@ Findings par sévérité :
       actuellement (F-14 pas encore branché côté écriture) — pas de risque de fuite tant que ça
       reste le cas. À surveiller : si `qa_history` reçoit un jour un writer, lui ajouter le même
       garde que 09. Aucun fix de code pour l'instant.
-- [ ] F-08.3 non mitigé pour petites équipes (compte brut de développeurs bloqués sans seuil)
-- [ ] `dm_channel_id` périmé confirmé dans `01b` (10/11/12 rouvrent déjà le channel à chaque fois, ok)
+- [x] F-08.3 non mitigé pour petites équipes — `08-memory-reader` masque maintenant
+      `active_blocker_developer_count` sous forme `'none'`/`'some'` quand l'équipe active a moins
+      de 3 développeurs (au lieu du nombre brut) — commit `4510881`. **Suivi non fermé** (trouvé
+      par l'agent sécu en review, pas dans l'audit initial) : `feature_areas[].has_blocker` expose
+      toujours le blocage par zone NOMMÉE sans masquage petite équipe, dans le même node — sur une
+      équipe où chaque zone a un seul propriétaire connu du TL, ça re-identifie tout autant. Pas
+      encore corrigé.
+- [x] `dm_channel_id` périmé dans `01b` — remplacé par `$('Classify Event').item.json.channel_id`
+      (le channel de l'événement Discord entrant, garanti à jour par construction puisqu'on répond
+      dans la même conversation) sur les ~10 nodes d'envoi + les 2 `queryReplacement` de création
+      de draft — plus simple que de répliquer le pattern "reopen" de 10/11/12 — commit `746be5d`
 
 **LOW**
 - [ ] Pas d'Expiry Janitor générique pour `approval_drafts` (concerne toute la table, pas
