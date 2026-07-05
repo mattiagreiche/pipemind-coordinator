@@ -54,15 +54,15 @@ vers 01b) — en attente de revue sécurité avant commit.
 
 Findings encore ouverts, par sévérité :
 
-**CRIT**
-- [ ] Bug IF n8n (`=== true` imprévisible) corrigé seulement partiellement : 9/13 workflows
-  encore affectés, y compris des gates critiques — `02-aggregation-boundary` (`Boundary Clean?`,
-  `Rewrite Clean?`), `00-startup-config-validation` (`Roster Valid?`, `Env Vars OK?`), ~15 nodes
-  dans `01b`, `Response Clean?`/`Developer Verified?` dans `07`. Ne pas se fier à la liste
-  "workflows à surveiller" ci-dessous (obsolète) — régénérer via
-  `grep '"type": "boolean"' workflows/*.json` avant de corriger.
+**CRIT — les deux résolus (2026-07-04)**
+- [x] Canal d'approbation mort (01b webhook + réactions Discord) — voir commit `7d01c51`
+- [x] Bug de comparateur booléen n8n 1.91.3 — 26 nodes convertis (25 IF + 1 Switch
+  `Route Message Type` dans 07, trouvé lors de la revue sécurité du premier passage) au
+  pattern Code node `if (cond) return []; return $input.all();`, dans 00, 01b, 02, 03, 05, 06,
+  07, 10, 12 — voir commit `b365c1b`. Bonus : bug de câblage inversé corrigé dans 01b
+  (`If Time Parsed?` avait ses branches vraie/fausse échangées).
 
-**HIGH**
+**HIGH
 - [ ] LIKE injection dans la recherche de collègue (`01b`, node `Resolve Colleague from Roster`)
       — passer en exact match
 - [ ] Check Google Calendar manquant pour SC-06a (`01b`, node `Check Colleague Scheduled`)
@@ -89,7 +89,10 @@ Findings encore ouverts, par sévérité :
 - [ ] Pas d'Expiry Janitor générique pour `approval_drafts` (concerne toute la table, pas
       seulement le workflow 06)
 - [ ] `qa_history` toujours sans colonne `written_by_workflow`
-- [ ] Nodes `Skip?` morts dans 03/05/06/07 (jamais atteints dans le graphe `connections`)
+- [ ] Nodes `Skip?`/NoOp devenus orphelins après la conversion CRIT (`Skip — Invalid Message`,
+      `Skip — Not Client`, `Skip — Too Many Pending`, `Skip — Not Join Event`, `Skip — Not DM`,
+      `Skip — Not Developer` dans 03/05/06/07) — comportement fonctionnel identique (c'étaient
+      déjà des dead-ends), juste du nettoyage cosmétique à faire un jour
 
 **Confirmé sûr** (pas besoin de retravailler) : anti-spoofing Discord (snowflake ID, jamais
 username) partout, aucun secret en dur, garde SSRF sur `LLM_BASE_URL`, SQL paramétrée partout,
@@ -129,20 +132,26 @@ Mettre à jour `.env` avec les IDs des workflows importés dans n8n, puis `docke
 
 ---
 
-## Note technique — Bug IF nodes n8n 1.91.3
+## Note technique — Bug IF/Switch nodes n8n 1.91.3 — RÉSOLU (2026-07-04)
 
-Les IF nodes avec `=== true` se comportent de façon imprévisible dans cette version.
-**Pattern à utiliser partout :**
+Les IF/Switch nodes avec comparateur `{type:"boolean", operation:"equals"}` (`=== true`/`=== false`)
+se comportaient de façon imprévisible dans cette version. **Corrigé partout** (commit `b365c1b`) :
+26 nodes convertis (25 IF + 1 Switch `Route Message Type` dans 07) au pattern suivant :
+
 ```javascript
-// Dans un Code node — à la place d'un IF node
+// Dans un Code node — à la place d'un IF/Switch node
 if (conditionPourStopper) return [];  // arrête l'exécution silencieusement
 return $input.all();                  // continue
 ```
-**Ne pas se fier à une liste manuelle de nodes "à surveiller"** — l'audit du 2026-07-04 a montré
-que la liste précédente ici (03/05/06/07 "déjà corrigés") était fausse : seuls des nodes
-secondaires avaient été convertis, jamais les gates d'identité/anti-fuite. Avant de corriger,
-régénérer la liste réelle des nodes concernés :
+
+Quand un seul côté de la branche menait à une action réelle (l'autre à un dead-end/NoOp) : IF
+remplacé en place par un seul Code node. Quand les deux côtés menaient à des actions différentes :
+IF/Switch remplacé par deux Code nodes (`Nom (yes)`/`Nom (no)`), chacun câblé vers sa vraie cible
+d'origine.
+
+Si un nouveau node IF/Switch booléen apparaît, vérifier avec :
 ```
-grep -l '"type": "boolean"' workflows/*.json
+grep '"type": "boolean"' workflows/*.json
 ```
-puis vérifier chaque occurrence dans le fichier trouvé.
+(au 2026-07-04, les seuls hits restants sont légitimes — un champ `boundary_audit_passed` de type
+boolean dans deux Set nodes de `02-aggregation-boundary.json`, pas des comparateurs de routage).
