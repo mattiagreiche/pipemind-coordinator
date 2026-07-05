@@ -24,14 +24,12 @@ credentials en place.
 ## Prochaine session — reprendre ici
 
 Tous les CRIT (2) et HIGH (5) de l'audit du 2026-07-04 sont réglés, vérifiés par l'agent
-sécurité, et committés. Il reste 3 MEDIUM ouverts (non bloquants, à faire un par un comme
+sécurité, et committés. Il reste 2 MEDIUM ouverts (non bloquants, à faire un par un comme
 d'habitude — fix, agent sécurité, commit) :
 
-1. [ ] `11-time-log-offer` — `Log Outreach` s'exécute avant confirmation d'envoi DM (si l'envoi
-   échoue, le draft reste orphelin et bloque toute nouvelle tentative ce jour-là sans alerte)
-2. [ ] F-08.3 non mitigé pour petites équipes — `08-memory-reader` renvoie le compte brut de
+1. [ ] F-08.3 non mitigé pour petites équipes — `08-memory-reader` renvoie le compte brut de
    développeurs bloqués sans seuil, ce qui équivaut à une attribution nommée sur une équipe de 1-2
-3. [ ] `dm_channel_id` périmé dans `01b` — ~10 nodes utilisent une valeur stockée sans la
+2. [ ] `dm_channel_id` périmé dans `01b` — ~10 nodes utilisent une valeur stockée sans la
    revalider (pattern "reopen before send" déjà fait dans 10/11/12, à appliquer pareil ici)
 
 Puis les LOW (cosmétiques, pas urgents — liste complète plus bas).
@@ -141,7 +139,11 @@ Findings par sévérité :
       `continueOnFail` (aurait transformé une erreur API transitoire en fuite de claim permanente
       bloquant tout retry futur), et la notif "pas d'email calendrier" qui perdait sa référence de
       channel après l'insertion du nouveau node de rollback.
-- [ ] `11-time-log-offer` — `Log Outreach` s'exécute avant confirmation d'envoi DM
+- [x] `11-time-log-offer` — `Log Outreach` s'exécutait avant confirmation d'envoi DM sur les
+      chemins Offer et Info — corrigé pour matcher le pattern déjà correct de `10-checkin.json`
+      (log uniquement après `$json.id` non-vide sur la réponse Discord). Boucle infinie trouvée
+      et corrigée par moi-même avant la revue (détection de cycle par DFS, puis vérifiée sur les
+      15 fichiers workflows) — commit `a5c0aaa`
 - [x] `08-memory-reader` fait confiance aux données — **vérifié, déjà mitigé** : `project_signals`
       est gardé par un `throw` explicite dans le workflow 09 avant écriture si
       `boundary_audit_passed` n'est pas vrai. `qa_history` n'est écrit par AUCUN workflow
