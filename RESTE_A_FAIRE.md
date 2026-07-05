@@ -3,6 +3,24 @@
 *Mis à jour le 2026-07-04 suite à l'audit sécurité global post-merge (branche `main`). Cette
 section reflète l'état réel vérifié par l'agent de sécurité, pas l'état espéré.*
 
+## État global (résumé au 2026-07-04 soir, pour reprendre le 2026-07-05)
+
+**Bugs de l'audit sécurité** : la grosse majorité est réglée. CRIT 2/2, HIGH 5/5, MEDIUM 5/8
+(+ 2 des 8 étaient des faux positifs vérifiés sûrs, pas de vrai bug), LOW pas encore touchés
+(cosmétique). Chaque fix a été vérifié par un agent de sécurité adversarial avant commit, et
+plusieurs bugs de câblage cachés (branches vraie/fausse inversées, réponses HTTP mal formées)
+ont été trouvés et corrigés au passage — pas juste les findings de l'audit initial.
+
+**Mais "logique correcte sur papier" ≠ "testé et qui marche"** : zéro flux n'a encore tourné de
+bout en bout en conditions réelles dans Discord/n8n. Deux choses bloquent complètement le test
+réel, indépendamment de l'audit (jamais touchées cette session) :
+- Credentials manquants : GitHub, Jira, Google OAuth
+- IDs de workflow pas mis à jour dans `.env` + plusieurs workflows pas activés dans n8n (voir
+  sections 1/2/3 plus bas)
+
+Donc le code est probablement bon, mais rien ne remplace un vrai test end-to-end une fois les
+credentials en place.
+
 ## Prochaine session — reprendre ici
 
 Tous les CRIT (2) et HIGH (5) de l'audit du 2026-07-04 sont réglés, vérifiés par l'agent
