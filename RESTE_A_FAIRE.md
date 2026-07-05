@@ -3,6 +3,25 @@
 *Mis à jour le 2026-07-04 suite à l'audit sécurité global post-merge (branche `main`). Cette
 section reflète l'état réel vérifié par l'agent de sécurité, pas l'état espéré.*
 
+## Prochaine session — reprendre ici
+
+Tous les CRIT (2) et HIGH (5) de l'audit du 2026-07-04 sont réglés, vérifiés par l'agent
+sécurité, et committés. Il reste 3 MEDIUM ouverts (non bloquants, à faire un par un comme
+d'habitude — fix, agent sécurité, commit) :
+
+1. [ ] `11-time-log-offer` — `Log Outreach` s'exécute avant confirmation d'envoi DM (si l'envoi
+   échoue, le draft reste orphelin et bloque toute nouvelle tentative ce jour-là sans alerte)
+2. [ ] F-08.3 non mitigé pour petites équipes — `08-memory-reader` renvoie le compte brut de
+   développeurs bloqués sans seuil, ce qui équivaut à une attribution nommée sur une équipe de 1-2
+3. [ ] `dm_channel_id` périmé dans `01b` — ~10 nodes utilisent une valeur stockée sans la
+   revalider (pattern "reopen before send" déjà fait dans 10/11/12, à appliquer pareil ici)
+
+Puis les LOW (cosmétiques, pas urgents — liste complète plus bas).
+
+Une fois les MEDIUM/LOW traités (ou si on décide de les laisser), le vrai blocage pour tester en
+prod reste les **credentials manquants** (GitHub, Jira, Google OAuth) et les **IDs de workflow à
+mettre à jour dans `.env`** — voir sections 1 et 2 plus bas, inchangées depuis le début.
+
 ## Ce qui est fait
 
 ### Infrastructure
