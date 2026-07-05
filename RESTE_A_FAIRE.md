@@ -47,16 +47,14 @@ Résultat : code plus solide qu'avant l'audit, mais toujours **zéro test end-to
 
 ## Prochaine session — reprendre ici
 
-Tous les CRIT (2), HIGH (5) et MEDIUM (8) de l'audit du 2026-07-04 sont réglés (ou vérifiés
-faux positifs), agent sécurité + commit à chaque fois. Il reste :
+Tous les CRIT (2), HIGH (5) et MEDIUM (8, + 1 trouvé en cours de route) de l'audit du 2026-07-04
+sont réglés (ou vérifiés faux positifs), agent sécurité + commit à chaque fois. Il reste :
 
-1. [ ] **Nouveau (trouvé le 2026-07-05, pas dans l'audit initial)** : `08-memory-reader`,
-   `feature_areas[].has_blocker` expose le blocage par zone fonctionnelle **nommée** sans
-   masquage petite équipe (contrairement à `active_blocker_developer_count`, déjà masqué). Sur
-   une équipe où chaque zone a un seul propriétaire connu du TL, ça re-identifie tout autant.
-   F-08.3 n'est donc que partiellement refermé.
-2. [ ] Les LOW cosmétiques (liste plus bas — nodes orphelins, colonne `qa_history` inutilisée,
+1. [ ] Les LOW cosmétiques (liste plus bas — nodes orphelins, colonne `qa_history` inutilisée,
    pas d'Expiry Janitor générique).
+2. [ ] `08-memory-reader` n'est câblé nulle part encore (découvert le 2026-07-05, voir section
+   MEDIUM ci-dessous) — pas urgent, mais à garder en tête le jour où F-14/P1 le branche pour de
+   vrai : deux points de masquage additionnels à vérifier à ce moment-là.
 
 Une fois ça traité (ou si on décide de le laisser), le vrai blocage pour tester en prod reste les
 **credentials manquants** (GitHub et Google faits, Jira à confirmer) et les **IDs de workflow à
@@ -175,12 +173,18 @@ Findings par sévérité :
       reste le cas. À surveiller : si `qa_history` reçoit un jour un writer, lui ajouter le même
       garde que 09. Aucun fix de code pour l'instant.
 - [x] F-08.3 non mitigé pour petites équipes — `08-memory-reader` masque maintenant
-      `active_blocker_developer_count` sous forme `'none'`/`'some'` quand l'équipe active a moins
-      de 3 développeurs (au lieu du nombre brut) — commit `4510881`. **Suivi non fermé** (trouvé
-      par l'agent sécu en review, pas dans l'audit initial) : `feature_areas[].has_blocker` expose
-      toujours le blocage par zone NOMMÉE sans masquage petite équipe, dans le même node — sur une
-      équipe où chaque zone a un seul propriétaire connu du TL, ça re-identifie tout autant. Pas
-      encore corrigé.
+      `active_blocker_developer_count` (sous forme `'none'`/`'some'`, commit `4510881`) ET
+      `feature_areas[].has_blocker` par zone nommée (retiré du tableau, commit `f419b7d`) quand
+      l'équipe active a moins de 3 développeurs, pour `purpose='tl_internal'`. **Découverte
+      importante en cours de route** : `08-memory-reader` n'est actuellement appelé par AUCUN
+      workflow (`04-client-report` construit son propre draft sans passer par lui ; `07` non plus
+      pour `dev_self`) — donc le risque réel aujourd'hui est nul, ce fix est du renforcement pour
+      quand ce workflow sera câblé (probablement F-14/P1). Deux points à garder en tête pour ce
+      jour-là : (1) l'audit F-08 réel (`02-aggregation-boundary.json`, différent malgré le nom
+      similaire) ne détecte que des noms/IDs du roster — un texte du style "Auth: bloqué" sans nom
+      ne serait PAS attrapé si `feature_areas` non masqué finissait dans un draft `report` ; (2)
+      `purpose='dev_self'` reçoit aussi `feature_areas` complet sans masquage — même risque
+      théorique, pas encore traité, pas bloquant tant que rien n'appelle ce workflow.
 - [x] `dm_channel_id` périmé dans `01b` — remplacé par `$('Classify Event').item.json.channel_id`
       (le channel de l'événement Discord entrant, garanti à jour par construction puisqu'on répond
       dans la même conversation) sur les ~10 nodes d'envoi + les 2 `queryReplacement` de création
