@@ -168,7 +168,7 @@
     },
     {
       "id": "dedup-drive",
-      "name": "Dedup Drive",
+      "name": "Claim Drive",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
@@ -183,15 +183,15 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'drive_save', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ 'drive_save:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'drive_save:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-drive-new",
-      "name": "Drive Not Yet Saved?",
+      "name": "Drive Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -206,7 +206,7 @@
               "rightValue": 0,
               "operator": {
                 "type": "number",
-                "operation": "equals"
+                "operation": "gt"
               }
             }
           ]
@@ -228,6 +228,7 @@
           "name": "Pipemind Google Drive"
         }
       },
+      "continueOnFail": true,
       "parameters": {
         "operation": "upload",
         "name": "={{ 'progress-report-' + new Date().toISOString().split('T')[0] + '-' + $('Fetch Approved Draft').item.json.draft_id.slice(0,8) + '.txt' }}",
@@ -244,31 +245,8 @@
       }
     },
     {
-      "id": "log-drive",
-      "name": "Log Drive Delivered",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        1750,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "loY6OMgbNA9Cm4d8",
-          "name": "Postgres account"
-        }
-      },
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'drive_save', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
-        "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'drive_save:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
-        }
-      }
-    },
-    {
       "id": "dedup-gmail",
-      "name": "Dedup Gmail",
+      "name": "Claim Gmail",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
@@ -283,15 +261,15 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'gmail_send', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ 'gmail_send:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'gmail_send:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-gmail-new",
-      "name": "Gmail Not Yet Sent?",
+      "name": "Gmail Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -306,7 +284,7 @@
               "rightValue": 0,
               "operator": {
                 "type": "number",
-                "operation": "equals"
+                "operation": "gt"
               }
             }
           ]
@@ -328,6 +306,7 @@
           "name": "Pipemind Gmail"
         }
       },
+      "continueOnFail": true,
       "parameters": {
         "operation": "send",
         "toList": "={{ $env.CLIENT_EMAIL }}",
@@ -337,31 +316,8 @@
       }
     },
     {
-      "id": "log-gmail",
-      "name": "Log Gmail Delivered",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        2750,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "loY6OMgbNA9Cm4d8",
-          "name": "Postgres account"
-        }
-      },
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'gmail_send', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
-        "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'gmail_send:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
-        }
-      }
-    },
-    {
       "id": "dedup-discord-qa",
-      "name": "Dedup Discord QA",
+      "name": "Claim QA",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
@@ -376,15 +332,15 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_qa', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ 'discord_qa:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_qa:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-qa-new",
-      "name": "QA Not Yet Sent?",
+      "name": "QA Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -399,7 +355,7 @@
               "rightValue": 0,
               "operator": {
                 "type": "number",
-                "operation": "equals"
+                "operation": "gt"
               }
             }
           ]
@@ -451,31 +407,8 @@
       }
     },
     {
-      "id": "log-qa",
-      "name": "Log QA Delivered",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        1750,
-        250
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "loY6OMgbNA9Cm4d8",
-          "name": "Postgres account"
-        }
-      },
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_qa', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
-        "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_qa:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
-        }
-      }
-    },
-    {
       "id": "dedup-welcome",
-      "name": "Dedup Welcome",
+      "name": "Claim Welcome",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
@@ -490,15 +423,15 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_welcome', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ 'discord_welcome:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_welcome:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-welcome-new",
-      "name": "Welcome Not Yet Sent?",
+      "name": "Welcome Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -513,7 +446,7 @@
               "rightValue": 0,
               "operator": {
                 "type": "number",
-                "operation": "equals"
+                "operation": "gt"
               }
             }
           ]
@@ -565,29 +498,6 @@
       }
     },
     {
-      "id": "log-welcome",
-      "name": "Log Welcome Delivered",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        1750,
-        500
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "loY6OMgbNA9Cm4d8",
-          "name": "Postgres account"
-        }
-      },
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_welcome', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
-        "options": {
-          "queryReplacement": "={{ [\n  $('Fetch Approved Draft').item.json.draft_id,\n  'discord_welcome:' + $('Fetch Approved Draft').item.json.draft_id\n] }}"
-        }
-      }
-    },
-    {
       "id": "log-client-welcomed",
       "name": "Log Client Welcomed",
       "type": "n8n-nodes-base.postgres",
@@ -612,7 +522,7 @@
     },
     {
       "id": "dedup-clockify",
-      "name": "Dedup Clockify",
+      "name": "Claim Clockify",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
@@ -627,15 +537,15 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT action_id FROM pipemind.delivered_actions\nWHERE dedup_key = $1;",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'clockify_write', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ 'clockify_write:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'clockify_write:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-clockify-new",
-      "name": "Clockify Not Yet Written?",
+      "name": "Clockify Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -650,7 +560,7 @@
               "rightValue": 0,
               "operator": {
                 "type": "number",
-                "operation": "equals"
+                "operation": "gt"
               }
             }
           ]
@@ -780,29 +690,6 @@
       }
     },
     {
-      "id": "log-clockify-delivered",
-      "name": "Log Clockify Delivered",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        2750,
-        800
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "loY6OMgbNA9Cm4d8",
-          "name": "Postgres account"
-        }
-      },
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'clockify_write', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
-        "options": {
-          "queryReplacement": "={{ [ $('Parse Time Entry').item.json.draft_id, 'clockify_write:' + $('Parse Time Entry').item.json.draft_id ] }}"
-        }
-      }
-    },
-    {
       "id": "confirm-dev-dm",
       "name": "Confirm Dev DM",
       "type": "n8n-nodes-base.httpRequest",
@@ -846,7 +733,7 @@
     },
     {
       "id": "dedup-colleague-dm",
-      "name": "Dedup Colleague DM",
+      "name": "Claim Colleague DM",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
@@ -861,15 +748,15 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT action_id FROM pipemind.delivered_actions WHERE dedup_key = $1;",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_colleague_dm', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ 'discord_colleague_dm:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_colleague_dm:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-colleague-dm-new",
-      "name": "Colleague DM Not Yet Sent?",
+      "name": "Colleague DM Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -884,7 +771,7 @@
               "rightValue": 0,
               "operator": {
                 "type": "number",
-                "operation": "equals"
+                "operation": "gt"
               }
             }
           ]
@@ -970,29 +857,6 @@
       }
     },
     {
-      "id": "log-colleague-dm-delivered",
-      "name": "Log Colleague DM Delivered",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        2250,
-        950
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "loY6OMgbNA9Cm4d8",
-          "name": "Postgres account"
-        }
-      },
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_colleague_dm', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
-        "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_colleague_dm:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
-        }
-      }
-    },
-    {
       "id": "notify-colleague-dm-failed",
       "name": "Notify Colleague DM Failed",
       "type": "n8n-nodes-base.httpRequest",
@@ -1021,7 +885,7 @@
     },
     {
       "id": "dedup-calendar-event",
-      "name": "Dedup Calendar Event",
+      "name": "Claim Calendar Event",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
@@ -1036,15 +900,15 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT action_id FROM pipemind.delivered_actions WHERE dedup_key = $1;",
+        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'calendar_event_create', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ 'calendar_event_create:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'calendar_event_create:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-calendar-new",
-      "name": "Calendar Not Yet Created?",
+      "name": "Calendar Event Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -1059,7 +923,7 @@
               "rightValue": 0,
               "operator": {
                 "type": "number",
-                "operation": "equals"
+                "operation": "gt"
               }
             }
           ]
@@ -1147,29 +1011,6 @@
               }
             }
           ]
-        }
-      }
-    },
-    {
-      "id": "log-calendar-event-delivered",
-      "name": "Log Calendar Event Delivered",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        2500,
-        1150
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "loY6OMgbNA9Cm4d8",
-          "name": "Postgres account"
-        }
-      },
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'calendar_event_create', $2)\nON CONFLICT (dedup_key) DO NOTHING;",
-        "options": {
-          "queryReplacement": "={{ [ $('Parse Calendar Context').item.json.draft_id, 'calendar_event_create:' + $('Parse Calendar Context').item.json.draft_id ] }}"
         }
       }
     },
@@ -1287,7 +1128,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$json.channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').item.json.channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1300,6 +1141,410 @@
         "sendBody": true,
         "contentType": "json",
         "body": "={{ JSON.stringify({ content: '[Pipemind] No calendar linked for your account — please create the block manually in Google Calendar.' }) }}"
+      }
+    },
+    {
+      "id": "if-drive-ok",
+      "name": "If Drive OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1620,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "release-drive-claim",
+      "name": "Release Drive Claim",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1620,
+        150
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Claim Drive').item.json.action_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "notify-drive-failed",
+      "name": "Notify Drive Failed DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1750,
+        150
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved report failed to save to Google Drive. Please check the Drive folder and retry manually if needed.\" }) }}"
+      }
+    },
+    {
+      "id": "if-gmail-ok",
+      "name": "If Gmail OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2120,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "release-gmail-claim",
+      "name": "Release Gmail Claim",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2120,
+        150
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Claim Gmail').item.json.action_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "notify-gmail-failed",
+      "name": "Notify Gmail Failed DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2250,
+        150
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved report failed to send via Gmail. Please check and retry manually if needed.\" }) }}"
+      }
+    },
+    {
+      "id": "if-qa-ok",
+      "name": "If QA OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2500,
+        550
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "release-qa-claim",
+      "name": "Release QA Claim",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2500,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Claim QA').item.json.action_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "notify-qa-failed",
+      "name": "Notify QA Failed DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2650,
+        700
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved Q&A reply failed to post in the client channel. Please check and resend manually if needed.\" }) }}"
+      }
+    },
+    {
+      "id": "if-welcome-ok",
+      "name": "If Welcome OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2500,
+        350
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "release-welcome-claim",
+      "name": "Release Welcome Claim",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2500,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Claim Welcome').item.json.action_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "notify-welcome-failed",
+      "name": "Notify Welcome Failed DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2650,
+        500
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved welcome message failed to post in the client channel. Please check and resend manually if needed.\" }) }}"
+      }
+    },
+    {
+      "id": "release-clockify-claim",
+      "name": "Release Clockify Claim",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2500,
+        950
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Claim Clockify').item.json.action_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "release-colleague-dm-claim",
+      "name": "Release Colleague DM Claim",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2050,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Claim Colleague DM').item.json.action_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "release-calendar-claim-failed",
+      "name": "Release Calendar Claim — Create Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2750,
+        750
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Claim Calendar Event').item.json.action_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "release-calendar-claim-noemail",
+      "name": "Release Calendar Claim — No Email",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2500,
+        1100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Claim Calendar Event').item.json.action_id ] }}"
+        }
       }
     }
   ],
@@ -1348,7 +1593,7 @@
       "report": [
         [
           {
-            "node": "Dedup Drive",
+            "node": "Claim Drive",
             "type": "main",
             "index": 0
           }
@@ -1357,7 +1602,7 @@
       "qa_reply": [
         [
           {
-            "node": "Dedup Discord QA",
+            "node": "Claim QA",
             "type": "main",
             "index": 0
           }
@@ -1366,7 +1611,7 @@
       "welcome": [
         [
           {
-            "node": "Dedup Welcome",
+            "node": "Claim Welcome",
             "type": "main",
             "index": 0
           }
@@ -1375,7 +1620,7 @@
       "time_entry": [
         [
           {
-            "node": "Dedup Clockify",
+            "node": "Claim Clockify",
             "type": "main",
             "index": 0
           }
@@ -1384,7 +1629,7 @@
       "colleague_dm": [
         [
           {
-            "node": "Dedup Colleague DM",
+            "node": "Claim Colleague DM",
             "type": "main",
             "index": 0
           }
@@ -1393,34 +1638,11 @@
       "calendar_event": [
         [
           {
-            "node": "Dedup Calendar Event",
+            "node": "Claim Calendar Event",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "Dedup Clockify": {
-      "main": [
-        [
-          {
-            "node": "Clockify Not Yet Written?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Clockify Not Yet Written?": {
-      "main": [
-        [
-          {
-            "node": "Fetch Dev Clockify ID",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "Fetch Dev Clockify ID": {
@@ -1460,54 +1682,14 @@
       "main": [
         [
           {
-            "node": "Log Clockify Delivered",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Notify Write Error DM",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Log Clockify Delivered": {
-      "main": [
-        [
-          {
             "node": "Confirm Dev DM",
             "type": "main",
             "index": 0
           }
-        ]
-      ]
-    },
-    "Dedup Drive": {
-      "main": [
-        [
-          {
-            "node": "Drive Not Yet Saved?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Drive Not Yet Saved?": {
-      "main": [
-        [
-          {
-            "node": "Save to Drive",
-            "type": "main",
-            "index": 0
-          }
         ],
         [
           {
-            "node": "Dedup Gmail",
+            "node": "Release Clockify Claim",
             "type": "main",
             "index": 0
           }
@@ -1518,79 +1700,22 @@
       "main": [
         [
           {
-            "node": "Log Drive Delivered",
+            "node": "If Drive OK?",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "Log Drive Delivered": {
-      "main": [
-        [
-          {
-            "node": "Dedup Gmail",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Dedup Gmail": {
-      "main": [
-        [
-          {
-            "node": "Gmail Not Yet Sent?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gmail Not Yet Sent?": {
-      "main": [
-        [
-          {
-            "node": "Send Gmail",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "Send Gmail": {
       "main": [
         [
           {
-            "node": "Log Gmail Delivered",
+            "node": "If Gmail OK?",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "Dedup Discord QA": {
-      "main": [
-        [
-          {
-            "node": "QA Not Yet Sent?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "QA Not Yet Sent?": {
-      "main": [
-        [
-          {
-            "node": "Validate QA Channel",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "Validate QA Channel": {
@@ -1608,34 +1733,11 @@
       "main": [
         [
           {
-            "node": "Log QA Delivered",
+            "node": "If QA OK?",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "Dedup Welcome": {
-      "main": [
-        [
-          {
-            "node": "Welcome Not Yet Sent?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Welcome Not Yet Sent?": {
-      "main": [
-        [
-          {
-            "node": "Validate Welcome Channel",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "Validate Welcome Channel": {
@@ -1653,45 +1755,11 @@
       "main": [
         [
           {
-            "node": "Log Welcome Delivered",
+            "node": "If Welcome OK?",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "Log Welcome Delivered": {
-      "main": [
-        [
-          {
-            "node": "Log Client Welcomed",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Dedup Colleague DM": {
-      "main": [
-        [
-          {
-            "node": "Colleague DM Not Yet Sent?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Colleague DM Not Yet Sent?": {
-      "main": [
-        [
-          {
-            "node": "Open DM to Colleague",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "Open DM to Colleague": {
@@ -1720,52 +1788,18 @@
       "main": [
         [
           {
-            "node": "Log Colleague DM Delivered",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Notify Colleague DM Failed",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Log Colleague DM Delivered": {
-      "main": [
-        [
-          {
             "node": "Mark Offer Colleague Done",
             "type": "main",
             "index": 0
           }
-        ]
-      ]
-    },
-    "Dedup Calendar Event": {
-      "main": [
-        [
-          {
-            "node": "Calendar Not Yet Created?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Calendar Not Yet Created?": {
-      "main": [
-        [
-          {
-            "node": "Parse Calendar Context",
-            "type": "main",
-            "index": 0
-          }
         ],
-        []
+        [
+          {
+            "node": "Release Colleague DM Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Parse Calendar Context": {
@@ -1790,7 +1824,7 @@
         ],
         [
           {
-            "node": "Notify No Calendar Email DM",
+            "node": "Release Calendar Claim — No Email",
             "type": "main",
             "index": 0
           }
@@ -1812,25 +1846,14 @@
       "main": [
         [
           {
-            "node": "Log Calendar Event Delivered",
+            "node": "Mark Offer Meeting Done",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Notify Calendar Failed DM",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Log Calendar Event Delivered": {
-      "main": [
-        [
-          {
-            "node": "Mark Offer Meeting Done",
+            "node": "Release Calendar Claim — Create Failed",
             "type": "main",
             "index": 0
           }
@@ -1842,6 +1865,342 @@
         [
           {
             "node": "Confirm Calendar DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Drive": {
+      "main": [
+        [
+          {
+            "node": "Drive Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Save to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Claim Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Drive OK?": {
+      "main": [
+        [
+          {
+            "node": "Claim Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Release Drive Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Release Drive Claim": {
+      "main": [
+        [
+          {
+            "node": "Notify Drive Failed DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Drive Failed DM": {
+      "main": [
+        [
+          {
+            "node": "Claim Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Gmail": {
+      "main": [
+        [
+          {
+            "node": "Gmail Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "If Gmail OK?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Release Gmail Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Release Gmail Claim": {
+      "main": [
+        [
+          {
+            "node": "Notify Gmail Failed DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Gmail Failed DM": {
+      "main": [
+        []
+      ]
+    },
+    "Claim QA": {
+      "main": [
+        [
+          {
+            "node": "QA Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QA Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Validate QA Channel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "If QA OK?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Release QA Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Release QA Claim": {
+      "main": [
+        [
+          {
+            "node": "Notify QA Failed DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify QA Failed DM": {
+      "main": [
+        []
+      ]
+    },
+    "Claim Welcome": {
+      "main": [
+        [
+          {
+            "node": "Welcome Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Welcome Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Validate Welcome Channel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "If Welcome OK?": {
+      "main": [
+        [
+          {
+            "node": "Log Client Welcomed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Release Welcome Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Release Welcome Claim": {
+      "main": [
+        [
+          {
+            "node": "Notify Welcome Failed DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Clockify": {
+      "main": [
+        [
+          {
+            "node": "Clockify Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clockify Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Dev Clockify ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Release Clockify Claim": {
+      "main": [
+        [
+          {
+            "node": "Notify Write Error DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Colleague DM": {
+      "main": [
+        [
+          {
+            "node": "Colleague DM Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Colleague DM Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Open DM to Colleague",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Release Colleague DM Claim": {
+      "main": [
+        [
+          {
+            "node": "Notify Colleague DM Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Calendar Event Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar Event Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Parse Calendar Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Release Calendar Claim — Create Failed": {
+      "main": [
+        [
+          {
+            "node": "Notify Calendar Failed DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Release Calendar Claim — No Email": {
+      "main": [
+        [
+          {
+            "node": "Notify No Calendar Email DM",
             "type": "main",
             "index": 0
           }
