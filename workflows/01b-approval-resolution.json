@@ -652,7 +652,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Unblock Offer (yes)').item.json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -828,7 +828,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -932,7 +932,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1060,7 +1060,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Offer for Just Talk').item.json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1235,7 +1235,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Offer for Free Text').item.json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1321,7 +1321,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Offer for Free Text').item.json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1384,7 +1384,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.approval_drafts\n  (approver_discord_id, discord_channel_id, feature_tag, content_type, draft_text, context_json, expires_at, boundary_audit_passed)\nVALUES\n  ($1, $2, 'F-06', 'colleague_dm',\n   '[Pipemind] A teammate could use a hand with ' || $3 || '. Are you available to connect with them today?',\n   jsonb_build_object('colleague_discord_id', $4, 'feature_area', $3, 'offer_id', $5::text),\n   now() + INTERVAL '48 hours',\n   TRUE)\nRETURNING draft_id;",
         "options": {
-          "queryReplacement": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $('Lookup Offer for Free Text').item.json.dm_channel_id,\n  $('Lookup Offer for Free Text').item.json.feature_area,\n  $('Resolve Colleague from Roster').item.json.colleague_discord_id,\n  $('Lookup Offer for Free Text').item.json.offer_id\n] }}"
+          "queryReplacement": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $('Classify Event').item.json.channel_id,\n  $('Lookup Offer for Free Text').item.json.feature_area,\n  $('Resolve Colleague from Roster').item.json.colleague_discord_id,\n  $('Lookup Offer for Free Text').item.json.offer_id\n] }}"
         }
       },
       "continueOnFail": false
@@ -1401,7 +1401,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Lookup Offer for Free Text').item.json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1470,7 +1470,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1509,7 +1509,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.approval_drafts\n  (approver_discord_id, discord_channel_id, feature_tag, content_type, draft_text, context_json, expires_at, boundary_audit_passed)\nVALUES\n  ($1, $2, 'F-06', 'calendar_event',\n   '[Pipemind] Calendar block: Focus session for ' || $3 || ' — ' || $4 || ' to ' || $5 || '.',\n   jsonb_build_object('start_iso', $6, 'end_iso', $7, 'feature_area', $3, 'calendar_email', $8, 'offer_id', $9::text),\n   now() + INTERVAL '48 hours',\n   TRUE)\nRETURNING draft_id;",
         "options": {
-          "queryReplacement": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $json.dm_channel_id,\n  $json.feature_area,\n  $json.start_label,\n  $json.end_label,\n  $json.start_iso,\n  $json.end_iso,\n  $json.requester_calendar_email,\n  $json.offer_id\n] }}"
+          "queryReplacement": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $('Classify Event').item.json.channel_id,\n  $json.feature_area,\n  $json.start_label,\n  $json.end_label,\n  $json.start_iso,\n  $json.end_iso,\n  $json.requester_calendar_email,\n  $json.offer_id\n] }}"
         }
       },
       "continueOnFail": false
@@ -1526,7 +1526,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Parse Meeting Time').item.json.dm_channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
