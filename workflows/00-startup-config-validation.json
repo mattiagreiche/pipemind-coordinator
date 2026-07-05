@@ -176,7 +176,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$env.TEAM_LEAD_APPROVAL_CHANNEL_ID}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
