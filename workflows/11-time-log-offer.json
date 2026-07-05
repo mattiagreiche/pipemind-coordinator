@@ -659,6 +659,54 @@
           "queryReplacement": "={{ JSON.stringify([$json.id, $('Create Approval Draft').item.json.draft_id]) }}"
         }
       }
+    },
+    {
+      "id": "if-draft-dm-ok",
+      "name": "If Draft DM OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4400,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "if-info-dm-ok",
+      "name": "If Info DM OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4150,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      }
     }
   ],
   "connections": {
@@ -888,7 +936,7 @@
       "main": [
         [
           {
-            "node": "Log Outreach (Info)",
+            "node": "If Info DM OK?",
             "type": "main",
             "index": 0
           }
@@ -910,7 +958,7 @@
       "main": [
         [
           {
-            "node": "Log Outreach (Offer)",
+            "node": "Send Draft DM",
             "type": "main",
             "index": 0
           }
@@ -921,22 +969,46 @@
       "main": [
         [
           {
-            "node": "Save Message ID to Draft",
+            "node": "If Draft DM OK?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Log Outreach (Offer)": {
+    "If Draft DM OK?": {
       "main": [
         [
           {
-            "node": "Send Draft DM",
+            "node": "Save Message ID to Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Save Message ID to Draft": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach (Offer)",
             "type": "main",
             "index": 0
           }
         ]
+      ]
+    },
+    "If Info DM OK?": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach (Info)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
