@@ -43,6 +43,67 @@ proprement demanderait une nouvelle requête (compter les contributeurs distinct
 risque (Tier 2 autorise déjà ce type de signal par design). À revoir si une équipe réelle a une
 zone à propriétaire unique évidente.
 
+## F-02.2/F-02.3 (teammate escalation) et SC-13 (auto-explication) construits — 2026-07-05
+
+**Why:** En comparant `specs/coordination-agent.md` au code après le câblage F-14, deux écarts
+identifiés : F-02.2/F-02.3 (demander à un coéquipier avant de répondre au client, avec fenêtre de
+2h) était totalement absent de `05-client-qa` (elle allait toujours direct au message d'attente
+sans jamais essayer de trouver quelqu'un à qui demander) ; SC-13 (l'agent peut expliquer ce qu'il
+fait) n'existait nulle part, alors que c'est une contrainte système contraignante, pas une feature
+optionnelle.
+
+**How to apply:**
+- **F-02.2/F-02.3** — commit `d6bde04`. Nouvelle table `pipemind.teammate_queries` (migration
+  `009`). `05-client-qa` identifie la zone de la question (mot-entier contre `project_signals`,
+  jamais de données Jira assignee — SC-17), trouve le développeur le plus récemment actif sur
+  cette zone via `standup_records` (signal primaire, pas Jira), vérifie sa disponibilité en
+  réutilisant le pattern Clockify+Calendar déjà audité de `01b`, lui envoie un DM, et enregistre
+  la requête en attente (deadline = min(+2h, EOD_TIME du jour même)). `07-developer-query` capture
+  sa réponse (claim atomique `UPDATE...RETURNING`), compose la réponse client via un nouvel appel
+  Ollama dédié, et la fait passer par F-03 comme n'importe quel `qa_reply`. `13-expiry-janitor`
+  bascule les requêtes expirées vers le message d'attente honnête existant.
+- **SC-13** — commit `d5a5212`. `03-tl-interaction` et `07-developer-query` reconnaissent un
+  nouvel intent `explain_request` (mots-clés, vérifié en premier pour ne pas confondre avec une
+  question de statut), répondent avec une description statique de l'agent + l'activité récente
+  DU DEMANDEUR LUI-MÊME uniquement (drafts approuvés/rejetés pour le TL, historique d'outreach
+  pour le développeur) — jamais de donnée d'un tiers, sans passer par F-03 (cohérent avec F-16.4
+  et F-17 qui n'exigent déjà pas d'approbation pour ce type de réponse informationnelle).
+
+Durci en cours de route dans `02-aggregation-boundary` (`Pattern Audit`/`Extract & Re-Audit`) :
+nouveau pattern pour attraper une attribution individuelle anonymisée du type "a developer
+said..." — nécessaire parce que F-02.2 est le premier chemin qui fabrique la réponse brute d'UN
+SEUL coéquipier comme matière première d'un contenu client.
+
+**Deux vrais bugs trouvés et corrigés avant commit** (2 passages de review sécurité) :
+1. HIGH — dans `07`, le check "réponse en attente d'un coéquipier ?" tournait AVANT la détection
+   de commande d'approbation (F-07). Un développeur avec les deux états en attente en même temps
+   (rare mais possible) voyait son "yes"/"no" happé par le mauvais flux. Réordonné : la commande
+   d'approbation est vérifiée en premier, le check coéquipier seulement dans la branche "query"
+   restante.
+2. MEDIUM — `Insert Teammate Query` (05) n'avait pas de gestion d'échec ; un problème DB aurait
+   fait disparaître la question du client sans jamais produire de réponse d'attente. Ajouté
+   `continueOnFail` + repli vers le message d'attente existant en cas d'échec. Également : le
+   compteur "trop de demandes en attente" compte maintenant `teammate_queries` en plus des
+   drafts, pour éviter que deux questions client quasi-simultanées déclenchent deux DM séparés.
+
+**Risque résiduel accepté, documenté par la review, pas corrigé cette session** : dans le cas rare
+où un développeur a À LA FOIS un draft de time-entry en attente ET une teammate_query en attente,
+répondre "yes"/"no" est maintenant traité comme l'approbation de temps (silencieusement, sans DM
+de confirmation en cas de succès) plutôt que comme la réponse au coéquipier — la teammate_query
+expire alors proprement après 2h et bascule sur le message d'attente. C'est plus étroit et plus
+sûr que la collision d'origine (une écriture Clockify non confirmée vs. un mauvais brouillon
+encore filtré par le TL), mais pas éliminé. Piste si ça devient un problème réel : exiger des
+mots-clés différents ("approve"/"reject" au lieu de "yes"/"no"), ou ajouter une confirmation DM
+sur succès de `Call Delivery Executor` dans `07` (actuellement silencieux sur la branche succès).
+
+**Limite pré-existante, non spécifique à cette feature** : le nouveau pattern d'attribution
+anonymisée dans `02-aggregation-boundary` (comme tous les `metricPatterns` existants) est un
+regex à liste fermée — contournable par paraphrase (pluriel "developers said", "our dev
+mentioned", "according to a developer...", verbes hors liste). C'est déjà le mode de défense
+accepté dans tout le repo (regex + réécriture LLM + re-audit + revue humaine TL en dernier
+rempart), pas une régression. À garder en tête si le TL voit passer un draft avec ce genre de
+tournure qui n'aurait pas dû être là.
+
 ## État global (résumé au 2026-07-05, audit clos)
 
 **Bugs de l'audit sécurité** : tous réglés. CRIT 2/2, HIGH 5/5, MEDIUM 6/8 (+ 2 des 8 étaient des
@@ -101,7 +162,7 @@ les **credentials manquants** (GitHub et Google faits, Jira à confirmer) et les
 
 ### Infrastructure
 - [x] Stack Docker complète : n8n 1.91.3 + Postgres 16 + Ollama + discord-forwarder
-- [x] Schéma Postgres complet (`pipemind.*`) avec migrations 001-006
+- [x] Schéma Postgres complet (`pipemind.*`) avec migrations 001-009
 - [x] Secrets via 1Password CLI (`op://` refs) — aucune vraie valeur dans les fichiers
 - [x] `config/roster.json` — source de vérité pour l'équipe et le client
 - [x] Modèle Ollama `llama3.2` téléchargé
