@@ -3,7 +3,10 @@
 **Epic:** N/A — single spec
 **Glossary:** specs/glossary.md
 **Generated:** 2026-06-19
-**Status:** DRAFT — requires operator review
+**Status:** REVIEWED — implementation substantially complete (P0, P1, and F-06 beyond-P1 built).
+See Resolved Questions and Assumptions below for decisions made during implementation that
+narrowed this spec's remaining ambiguity.
+**Last reviewed:** 2026-07-05
 
 ---
 
@@ -122,6 +125,17 @@ Client questions are received and answered via Discord (the central comms channe
 - **GIVEN** the needed teammate is not scheduled to work, or has not replied within 2 hours of being privately messaged (within the same working day)
 - **WHEN** the agent must respond to the Client
 - **THEN** the agent does not contact an unscheduled person, does not invent an answer, and the Client receives an honest "we'll follow up" holding response in Discord after Team Lead approval
+
+**Implementation notes (resolved during build, 2026-07-05 — see RQ-S22/RQ-S23):**
+- *Identifying "the right teammate" (F-02.2)*: resolved via the primary signal, not a
+  supplementary one — the most recently active person on the question's feature area per standup
+  records. Never resolved via Jira assignee data, which SC-17 forbids extracting for any purpose.
+  If no feature area can be identified from the question, or no one has recent standup activity
+  on it, this counts as "no teammate identified" and falls through to F-02.3's holding response.
+- *"Within 2 hours ... within the same working day" (F-02.3)*: resolved as
+  `min(asked_at + 2 hours, end-of-day config time on the same calendar day)`. A question asked
+  close to end-of-day gets a shorter effective window rather than silently rolling into the next
+  working day.
 
 **F-02.4: Answer would require exposing individual data (privacy edge case)**
 - **GIVEN** the only available answer would attribute work or status to a named individual
@@ -332,6 +346,30 @@ Enforces the two-tier boundary defined in SC-03. Invoked by every upward-facing 
 
 ---
 
+### F-08 Implementation Notes: Known Re-Identification Pitfalls (non-normative)
+
+Found during implementation, not obvious from SC-03/SC-04/F-08's abstract rules alone. Any future
+feature touching aggregated or work-area-level signals should be checked against these before
+shipping:
+
+1. **Structured fields bypass text-pattern audits.** The F-08 boundary-audit implementation
+   pattern-matches free text (names, IDs, metric phrases like "X commits"). A structured
+   boolean/count field carrying the same signal (e.g. "this feature area currently has a
+   blocker: true/false") is invisible to a text audit — it must be masked at the data-assembly
+   layer, not assumed to be caught downstream just because the surrounding text was audited.
+2. **Team-size thresholds don't catch per-area ownership.** A masking rule keyed on total active
+   team size (e.g. "under 3 developers, suppress blocker flags") misses a single-owner feature
+   area on a larger team — that area's blocker flag re-identifies its owner just as surely as a
+   name would. The technically correct fix needs per-area contributor counts, not just a team
+   total; where that isn't implemented, the safer default is to withhold the field entirely for
+   the strictest boundary tier (Client, F-08.1) rather than lean on the team-size proxy.
+3. **Anonymised phrasing is still individual attribution.** "One developer said X" or "a teammate
+   mentioned Y" contains no name or ID, but it attributes content to a specific (if unnamed)
+   individual — permitted at the Team Lead internal tier (F-08.2's own example) but forbidden at
+   the Client tier (F-08.1: "no individual attribution of any kind, named or anonymised"). A
+   pattern audit built only to catch names/IDs will not catch this phrasing; Tier 1 content needs
+   an additional check for it specifically.
+
 ### F-14: Persistent Memory (Project Picture) | MUST | P1
 
 The database-backed memory store that gives the agent continuity between runs. Referenced by F-04, F-05, F-07.
@@ -418,7 +456,7 @@ A Developer may ask the agent project-level questions in their Discord DM at any
 **F-17.3: Developer asks who is responsible for a work area (privacy edge case)**
 - **GIVEN** a Developer asks a question that would require naming another individual (e.g. "who is assigned to the payments feature?")
 - **WHEN** the agent responds
-- **THEN** it provides the work-area context without naming individuals, or declines to attribute if naming would expose individual data [ASSUMPTION A-12]
+- **THEN** it provides the work-area context without naming individuals, or declines to attribute if naming would expose individual data — same treatment regardless of asker (see RQ-S25)
 
 **F-17.4: Developer's DM is unavailable (external dependency failure)**
 - **GIVEN** the agent cannot reach a Developer's Discord DM
@@ -472,8 +510,16 @@ A free-form "chat with the agent" interface is out of scope per the source.
 ## Open Questions
 
 No blocking open questions remain. The items below are noted for future milestone planning:
-- **OQ-08**: When F-06 (Unblock Assistance) is eventually built, what is the maximum number of re-offers before the agent permanently backs off for that blocker?
-- **OQ-09**: Should the weekly report fire on a fixed day/time (e.g. Friday 5 pm) or at the end of the sprint cycle? Who configures the day/time?
+- **OQ-10**: F-02.2's teammate identification (RQ-S23) matches the client's question against
+  known feature-area names via case-insensitive word-boundary substring matching — no LLM call,
+  no Jira data. This may under-match as the team's area vocabulary grows or becomes inconsistent
+  across standups. Revisit if real usage shows client questions that should have escalated to a
+  teammate but instead fell through to a generic answer or holding response.
+- **OQ-11**: The product's stated success metric is adoption, not accuracy (Product Intent), but
+  no feature currently surfaces an adoption signal to the Team Lead. A privacy-safe aggregate
+  count (e.g. "X of Y active team members currently muted") would be consistent with SC-04 (it's
+  a count, not a list of who) and could serve as a lightweight self-awareness signal. Not scoped
+  or built; worth considering for a future milestone.
 
 ## Resolved Questions
 - **RQ-01** *(was OQ-01)*: Client-facing content is always approved by the Team Lead. → A-01 resolved.
@@ -504,7 +550,11 @@ No blocking open questions remain. The items below are noted for future mileston
 - **RQ-S19** *(report day/time)*: Weekly report fires every Friday at a configurable time (deployment config). → F-01.1 updated; OQ-09 resolved.
 - **RQ-S20** *(dev can query agent)*: Developers can ask project-level status questions in their Discord DM; agent responds without approval gate. No individual data about teammates disclosed. → F-17 added.
 - **RQ-S21** *(day-1 bootstrapping)*: On first run with no standup data, agent builds initial project picture from GitHub/Jira supplementary signals only, and states that standup data is not yet available. → F-14.6 added.
+- **RQ-S22** *(teammate identification, was part of F-02.2's ambiguity)*: The right teammate is identified via the primary signal — most recently active person on the question's feature area per standup records — never via Jira assignee data (SC-17). See F-02.2 implementation notes.
+- **RQ-S23** *(F-02.3 deadline computation)*: "2 hours, same working day" is computed as `min(asked_at + 2 hours, end-of-day config time same calendar day)`. See F-02.3 implementation notes.
+- **RQ-S24** *(was OQ-08)*: No hard cap on re-offers is implemented for F-06. The existing per-person/per-day/per-feature-area uniqueness on unblock offers already prevents same-day duplicate offers, and mute (SC-12) is the person's explicit, human-controlled opt-out from further outreach entirely — judged sufficient rather than building separate cross-day backoff tracking. → OQ-08 resolved.
+- **RQ-S25** *(was A-12)*: No distinction is made between Team-Lead-visible and Developer-visible roster/assignment queries — a Developer asking who is assigned to a work area gets the same treatment as anyone else: feature-area status without naming any individual. This system does not track area-to-person assignment as roster data at all (assignment is only ever inferred transiently from recent standup activity), so there was no narrower distinction to make. → A-12 resolved.
 
 ## Assumptions
-All prior assumptions are resolved. One open item remains:
-- **A-12**: When a Developer asks the agent to identify who is assigned to a work area, the agent provides work-area context without naming individuals if doing so would expose individual data. The precise boundary (e.g. whether team-lead-visible roster queries are different from developer-visible ones) is an edge case left to the implementing agent's judgment consistent with SC-03. (F-17.3)
+All assumptions are resolved. A-12 (Developer asking who is assigned to a work area) was resolved
+during implementation — see RQ-S25.
