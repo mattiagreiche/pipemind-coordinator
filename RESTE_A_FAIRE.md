@@ -94,8 +94,16 @@ Findings par sévérité :
       en attente — corrigé, alerte maintenant le TL (sans contenu client) au lieu de `return []`
       sans route ; le NoOp `Skip — Too Many Pending` était en fait déjà orphelin, retiré —
       commit `81fa24a`
-- [ ] `01c-delivery-executor` — race condition possible sur retry concurrent (SELECT-then-INSERT
-      au lieu de INSERT...RETURNING avant l'action externe)
+- [x] `01c-delivery-executor` — race condition sur retry concurrent corrigée sur les 7 flux de
+      livraison (Drive/Gmail/QA/Welcome/Clockify/DM collègue/Calendar) : `INSERT ... ON CONFLICT
+      DO NOTHING RETURNING` posé AVANT l'action externe (claim atomique), avec rollback (`DELETE`)
+      si l'action échoue pour rester réessayable. Ajouté au passage la vérification succès/échec
+      manquante sur Drive/Gmail/QA/Welcome (le "delivered" se posait avant même en cas d'échec) et
+      corrigé `Log Client Welcomed` qui tournait même si le post échouait — commit `a287d10`.
+      2 bugs trouvés et corrigés en review avant ce commit : `Save to Drive`/`Send Gmail` sans
+      `continueOnFail` (aurait transformé une erreur API transitoire en fuite de claim permanente
+      bloquant tout retry futur), et la notif "pas d'email calendrier" qui perdait sa référence de
+      channel après l'insertion du nouveau node de rollback.
 - [ ] `11-time-log-offer` — `Log Outreach` s'exécute avant confirmation d'envoi DM
 - [x] `08-memory-reader` fait confiance aux données — **vérifié, déjà mitigé** : `project_signals`
       est gardé par un `throw` explicite dans le workflow 09 avant écriture si
