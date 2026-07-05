@@ -1,15 +1,15 @@
 # Pipemind Coordinator — État du projet
 
-*Mis à jour le 2026-07-04 suite à l'audit sécurité global post-merge (branche `main`). Cette
-section reflète l'état réel vérifié par l'agent de sécurité, pas l'état espéré.*
+*Mis à jour le 2026-07-05 — audit sécurité global post-merge (branche `main`) entièrement clos.
+Cette section reflète l'état réel vérifié par l'agent de sécurité, pas l'état espéré.*
 
-## État global (résumé au 2026-07-04 soir, pour reprendre le 2026-07-05)
+## État global (résumé au 2026-07-05, audit clos)
 
-**Bugs de l'audit sécurité** : la grosse majorité est réglée. CRIT 2/2, HIGH 5/5, MEDIUM 5/8
-(+ 2 des 8 étaient des faux positifs vérifiés sûrs, pas de vrai bug), LOW pas encore touchés
-(cosmétique). Chaque fix a été vérifié par un agent de sécurité adversarial avant commit, et
-plusieurs bugs de câblage cachés (branches vraie/fausse inversées, réponses HTTP mal formées)
-ont été trouvés et corrigés au passage — pas juste les findings de l'audit initial.
+**Bugs de l'audit sécurité** : tous réglés. CRIT 2/2, HIGH 5/5, MEDIUM 6/8 (+ 2 des 8 étaient des
+faux positifs vérifiés sûrs, pas de vrai bug), LOW 3/3. Chaque fix a été vérifié par un agent de
+sécurité adversarial avant commit, et plusieurs bugs de câblage cachés (branches vraie/fausse
+inversées, réponses HTTP mal formées, nodes morts non couverts au premier passage) ont été
+trouvés et corrigés au passage — pas juste les findings de l'audit initial.
 
 **Mais "logique correcte sur papier" ≠ "testé et qui marche"** : zéro flux n'a encore tourné de
 bout en bout en conditions réelles dans Discord/n8n. Deux choses bloquent complètement le test
@@ -21,13 +21,13 @@ réel, indépendamment de l'audit (jamais touchées cette session) :
 Donc le code est probablement bon, mais rien ne remplace un vrai test end-to-end une fois les
 credentials en place.
 
-**Reste à faire côté audit** : uniquement les LOW (cosmétiques, non bloquants — voir la liste
-sous "MEDIUM"/"LOW" plus bas : pas d'Expiry Janitor générique, colonne `qa_history` inutilisée,
-nodes `Skip?`/NoOp orphelins). Pas encore traités.
+**Côté audit** : les CRIT, HIGH, MEDIUM et maintenant les LOW sont tous réglés (voir "LOW" plus
+bas, fermé le 2026-07-05). Il ne reste plus aucun finding ouvert de l'audit du 2026-07-04/05.
 
 ## Méthode suivie pendant la session d'audit (2026-07-04/05)
 
-Pour chacun des 15 findings traités (2 CRIT, 5 HIGH, 8 MEDIUM), le même motif a été répété :
+Pour chacun des 18 findings traités (2 CRIT, 5 HIGH, 8 MEDIUM, 3 LOW), le même motif a été
+répété :
 
 1. **Comprendre avant de coder** — retracer le vrai chemin du bug dans le graphe `connections`
    des workflows (pas juste lire le nom du node), plutôt que corriger à l'aveugle. Ça a permis de
@@ -51,18 +51,17 @@ Résultat : code plus solide qu'avant l'audit, mais toujours **zéro test end-to
 
 ## Prochaine session — reprendre ici
 
-Tous les CRIT (2), HIGH (5) et MEDIUM (8, + 1 trouvé en cours de route) de l'audit du 2026-07-04
-sont réglés (ou vérifiés faux positifs), agent sécurité + commit à chaque fois. Il reste :
+Tous les CRIT (2), HIGH (5), MEDIUM (8, + 1 trouvé en cours de route) et LOW (3) de l'audit du
+2026-07-04/05 sont réglés (ou vérifiés faux positifs), agent sécurité + commit à chaque fois.
+Il reste :
 
-1. [ ] Les LOW cosmétiques (liste plus bas — nodes orphelins, colonne `qa_history` inutilisée,
-   pas d'Expiry Janitor générique).
-2. [ ] `08-memory-reader` n'est câblé nulle part encore (découvert le 2026-07-05, voir section
+1. [ ] `08-memory-reader` n'est câblé nulle part encore (découvert le 2026-07-05, voir section
    MEDIUM ci-dessous) — pas urgent, mais à garder en tête le jour où F-14/P1 le branche pour de
    vrai : deux points de masquage additionnels à vérifier à ce moment-là.
 
-Une fois ça traité (ou si on décide de le laisser), le vrai blocage pour tester en prod reste les
-**credentials manquants** (GitHub et Google faits, Jira à confirmer) et les **IDs de workflow à
-mettre à jour dans `.env`** — voir sections 1 et 2 plus bas, inchangées depuis le début.
+Le vrai blocage pour tester en prod reste les **credentials manquants** (GitHub et Google faits,
+Jira à confirmer) et les **IDs de workflow à mettre à jour dans `.env`** — voir sections 1 et 2
+plus bas, inchangées depuis le début.
 
 ## Ce qui est fait
 
@@ -194,14 +193,35 @@ Findings par sévérité :
       dans la même conversation) sur les ~10 nodes d'envoi + les 2 `queryReplacement` de création
       de draft — plus simple que de répliquer le pattern "reopen" de 10/11/12 — commit `746be5d`
 
-**LOW**
-- [ ] Pas d'Expiry Janitor générique pour `approval_drafts` (concerne toute la table, pas
-      seulement le workflow 06)
-- [ ] `qa_history` toujours sans colonne `written_by_workflow`
-- [ ] Nodes `Skip?`/NoOp devenus orphelins après la conversion CRIT (`Skip — Invalid Message`,
-      `Skip — Not Client`, `Skip — Too Many Pending`, `Skip — Not Join Event`, `Skip — Not DM`,
-      `Skip — Not Developer` dans 03/05/06/07) — comportement fonctionnel identique (c'étaient
-      déjà des dead-ends), juste du nettoyage cosmétique à faire un jour
+**LOW — les 3 résolus le 2026-07-05**
+- [x] Expiry Janitor générique ajouté — nouveau workflow `13-expiry-janitor.json` (Schedule
+      Trigger horaire + `UPDATE ... SET status = 'expired', settled_at = now() WHERE status =
+      'pending' AND expires_at <= now()`), couvre toute la table `approval_drafts` tous
+      content_type confondus, sur le même modèle que "Sweep Expired Offers" déjà en prod dans
+      `12-unblock-assistance.json` — commit `5799387`. Vérifié : transition `pending → expired`
+      passe `check_status_transition()` sans exception, et la clause `WHERE` est mutuellement
+      exclusive avec les requêtes d'approbation/rejet de `01b` (pas de race destructive). Bonus
+      trouvé en review : `Mark Rejected` dans `01b` ne vérifie pas `expires_at > now()` (TOCTOU
+      préexistant, cosmétique — un rejet peut réussir sur un draft déjà expiré sans conséquence
+      réelle puisque les deux issues aboutissent à "rien n'est envoyé") — laissé tel quel, pas
+      bloquant.
+- [x] `qa_history.written_by_workflow` ajoutée — migration `008-qa-history-provenance.sql`,
+      colonne nullable avec la même contrainte de format que `feature_area` (whitelist
+      alphanumérique) pour empêcher qu'un futur writer y stocke un `discord_id` ou un nom en
+      clair — commit `83b5982`. Toujours aucun workflow n'écrit dans `qa_history` (F-14.1 pas
+      câblé), donc pur schema future-proofing.
+- [x] Nodes morts issus de la conversion IF→Code du CRIT nettoyés, en deux passes (la 1re revue
+      sécurité avait raté une partie du problème en filtrant seulement par type NoOp) — commit
+      `da9e6c9` :
+      - 6 NoOp `Skip — X` (Invalid Message, Not Client ×2, Not Join Event, Not DM, Not Developer)
+        dans 05/06/07 — dead-ends sans connexion entrante
+      - 6 nodes Code supplémentaires trouvés au 2e passage : `Skip?` orphelin dans 03/05/06/07
+        (superflu depuis que les nodes `Filter ... Message` amont ont absorbé la logique de skip
+        directement) et `Too Many Pending?` dans 05 (superflu, remplacé par la paire
+        `(yes)`/`(no)` issue de la même conversion)
+      Confirmé par un balayage exhaustif des 16 fichiers (tous types de nodes, pas seulement
+      NoOp) : plus aucun node orphelin, aucune connexion pendante, aucun id/nom dupliqué, aucun
+      cycle. Diff = suppressions uniquement, aucun chemin fonctionnel touché.
 
 **Confirmé sûr** (pas besoin de retravailler) : anti-spoofing Discord (snowflake ID, jamais
 username) partout, aucun secret en dur, garde SSRF sur `LLM_BASE_URL`, SQL paramétrée partout,
