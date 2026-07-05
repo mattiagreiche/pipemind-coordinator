@@ -81,14 +81,25 @@ Findings par sévérité :
       planifié) — commit `df3efd8`
 
 **MEDIUM**
-- [ ] `boundary_audit_passed` est un flag décoratif — jamais vérifié dans
-      `check_status_transition()` (migration 002)
-- [ ] `05-client-qa` n'appelle jamais le workflow 02 (F-08) malgré la dépendance déclarée dans les specs
+- [x] `boundary_audit_passed` jamais vérifié en DB — migration `007` ajoute le check dans
+      `check_status_transition()` (commit `0c8bea6`). Investigation complète avant de coder :
+      tous les chemins d'écriture actuels (01, 01b, 11) mettent déjà ce flag correctement avant
+      d'atteindre `status='approved'` — ce fix est du renforcement en profondeur, pas la
+      correction d'un contournement actif.
+- [x] `05-client-qa` n'appelle jamais F-08 — **vérifié, faux positif** : `05` appelle bien F-08,
+      indirectement via le workflow 01 (Approval Gate) partagé, qui audite automatiquement tout
+      draft `content_type IN ('report','qa_reply','welcome')` avant que le TL le voie. Le finding
+      original comparait à tort à l'audit inline de 03 sans tracer ce chemin. Aucun fix de code.
 - [ ] `05-client-qa` node `Too Many Pending?` perd silencieusement le message client si ≥2 drafts en attente
 - [ ] `01c-delivery-executor` — race condition possible sur retry concurrent (SELECT-then-INSERT
       au lieu de INSERT...RETURNING avant l'action externe)
 - [ ] `11-time-log-offer` — `Log Outreach` s'exécute avant confirmation d'envoi DM
-- [ ] `08-memory-reader` fait confiance aux données sans re-vérifier `boundary_audit_passed`
+- [x] `08-memory-reader` fait confiance aux données — **vérifié, déjà mitigé** : `project_signals`
+      est gardé par un `throw` explicite dans le workflow 09 avant écriture si
+      `boundary_audit_passed` n'est pas vrai. `qa_history` n'est écrit par AUCUN workflow
+      actuellement (F-14 pas encore branché côté écriture) — pas de risque de fuite tant que ça
+      reste le cas. À surveiller : si `qa_history` reçoit un jour un writer, lui ajouter le même
+      garde que 09. Aucun fix de code pour l'instant.
 - [ ] F-08.3 non mitigé pour petites équipes (compte brut de développeurs bloqués sans seuil)
 - [ ] `dm_channel_id` périmé confirmé dans `01b` (10/11/12 rouvrent déjà le channel à chaque fois, ok)
 
