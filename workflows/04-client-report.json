@@ -301,6 +301,17 @@
           ]
         }
       }
+    },
+    {
+      "id": "on-demand-trigger",
+      "name": "On-Demand Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
     }
   ],
   "connections": {
@@ -448,6 +459,17 @@
         [
           {
             "node": "Return Draft Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On-Demand Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Pending Report",
             "type": "main",
             "index": 0
           }
