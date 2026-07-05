@@ -87,7 +87,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "const msg_ctx = $('Filter Message').item.json;\nconst rosterRows = $('Fetch Roster').all();\nconst msg = msg_ctx.content.trim();\n\n// C-02/M-03: normalize + word-boundary (consistent with F-08)\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst msgNorm = normalize(msg);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\n// Named individual detection (no length gate — handles short names)\nlet asksForNamed = false;\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/\\s+/).filter(p => p.length > 0);\n  for (const part of parts) {\n    if (hasWordBoundary(msgNorm, part)) {\n      asksForNamed = true;\n      break;\n    }\n  }\n  if (asksForNamed) break;\n}\n\nconst reportKeywords = ['report', 'rapport', 'generate', 'weekly', 'status report', 'genere'];\nconst isReportRequest = reportKeywords.some(kw => msgNorm.includes(kw));\n\nconst questionIndicators =\n  msg.endsWith('?') ||\n  /\\b(how|status|quel|comment|blocked|progress|blocker|update)\\b/.test(msgNorm);\nconst isStatusQuestion = !isReportRequest && questionIndicators;\n\nlet intent;\nif (isReportRequest) intent = 'report_request';\nelse if (isStatusQuestion) intent = 'status_question';\nelse intent = 'unknown';\n\nreturn [{ json: {\n  intent,\n  asksForNamed,\n  content: msg_ctx.content,\n  author_id: msg_ctx.author_id,\n  channel_id: msg_ctx.channel_id,\n  message_id: msg_ctx.message_id\n} }];"
+        "jsCode": "const msg_ctx = $('Filter Message').item.json;\nconst rosterRows = $('Fetch Roster').all();\nconst msg = msg_ctx.content.trim();\n\n// C-02/M-03: normalize + word-boundary (consistent with F-08)\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst msgNorm = normalize(msg);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\n// Named individual detection (no length gate — handles short names)\nlet asksForNamed = false;\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/\\s+/).filter(p => p.length > 0);\n  for (const part of parts) {\n    if (hasWordBoundary(msgNorm, part)) {\n      asksForNamed = true;\n      break;\n    }\n  }\n  if (asksForNamed) break;\n}\n\n// SC-13: explain what the agent does / what data it used — checked first so an\n// explain question phrased as a question ('why did you...?') isn't misread as status_question.\nconst explainKeywords = ['explain', 'what do you do', 'what data', 'how do you work', 'why did you', 'quelles donnees', 'explique'];\nconst isExplainRequest = explainKeywords.some(kw => msgNorm.includes(kw));\n\nconst reportKeywords = ['report', 'rapport', 'generate', 'weekly', 'status report', 'genere'];\nconst isReportRequest = !isExplainRequest && reportKeywords.some(kw => msgNorm.includes(kw));\n\nconst questionIndicators =\n  msg.endsWith('?') ||\n  /\\b(how|status|quel|comment|blocked|progress|blocker|update)\\b/.test(msgNorm);\nconst isStatusQuestion = !isExplainRequest && !isReportRequest && questionIndicators;\n\nlet intent;\nif (isExplainRequest) intent = 'explain_request';\nelse if (isReportRequest) intent = 'report_request';\nelse if (isStatusQuestion) intent = 'status_question';\nelse intent = 'unknown';\n\nreturn [{ json: {\n  intent,\n  asksForNamed,\n  content: msg_ctx.content,\n  author_id: msg_ctx.author_id,\n  channel_id: msg_ctx.channel_id,\n  message_id: msg_ctx.message_id\n} }];"
       }
     },
     {
@@ -483,6 +483,97 @@
       "parameters": {
         "jsCode": "const j = $input.first().json;\nif ((j.clean) === true) return [];\nreturn $input.all();"
       }
+    },
+    {
+      "id": "if-explain-request",
+      "name": "Explain Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1750,
+        50
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "explain_request",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fetch-recent-tl-actions",
+      "name": "Fetch Recent TL Actions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2000,
+        50
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT content_type, feature_tag, status, updated_at\nFROM pipemind.approval_drafts\nWHERE approver_discord_id = $1\nORDER BY updated_at DESC\nLIMIT 5;",
+        "options": {
+          "queryReplacement": "={{ [ $('Classify Intent').item.json.author_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "compose-tl-explanation",
+      "name": "Compose TL Explanation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        50
+      ],
+      "parameters": {
+        "jsCode": "// SC-13: explain what the agent does and what data it used for a recent action.\n// Scoped to the asker's OWN activity (drafts they approved/rejected) — no third-party\n// individual data, per SC-13's explicit boundary.\nconst rows = $input.all();\nconst actions = rows.map(r => {\n  const when = new Date(r.json.updated_at).toISOString().slice(0, 16).replace('T', ' ');\n  return '- ' + r.json.content_type + ' (' + r.json.feature_tag + '): ' + r.json.status + ' at ' + when + ' UTC';\n});\n\nconst staticExplanation = [\n  \"I'm Pipemind, a coordination assistant for this project. Here's what I do:\",\n  '- I draft weekly/on-demand client progress reports and Q&A replies for your approval before anything is sent (F-01/F-02).',\n  '- I read standup updates, GitHub, and Jira as signals to build those drafts \\u2014 standups are the primary signal, Git/Jira are hints only.',\n  '- I never send anything to the client or log time on anyone\\u2019s behalf without a human approving it first.',\n  '- I never produce productivity scores, rankings, or named attribution outside this channel; in here I can share anonymised work-area signals (e.g. \"one developer on X is blocked\") but never name who.',\n  '- Anyone can mute my outreach to them at any time.'\n];\n\nconst recentSection = actions.length > 0\n  ? ['Recent drafts you\\u2019ve acted on:'].concat(actions)\n  : ['No recent draft activity found for you.'];\n\nconst text = staticExplanation.concat(['']).concat(recentSection).join('\\n').slice(0, 1900);\n\nreturn [{ json: { explanation: text } }];"
+      }
+    },
+    {
+      "id": "post-tl-explanation",
+      "name": "Post TL Explanation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        50
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: $('Compose TL Explanation').item.json.explanation }) }}"
+      }
     }
   ],
   "connections": {
@@ -545,7 +636,47 @@
       "main": [
         [
           {
+            "node": "Explain Request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Explain Request?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent TL Actions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Report Request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recent TL Actions": {
+      "main": [
+        [
+          {
+            "node": "Compose TL Explanation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose TL Explanation": {
+      "main": [
+        [
+          {
+            "node": "Post TL Explanation",
             "type": "main",
             "index": 0
           }
