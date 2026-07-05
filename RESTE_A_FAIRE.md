@@ -21,6 +21,30 @@ réel, indépendamment de l'audit (jamais touchées cette session) :
 Donc le code est probablement bon, mais rien ne remplace un vrai test end-to-end une fois les
 credentials en place.
 
+## Méthode suivie pendant la session d'audit (2026-07-04/05)
+
+Pour chacun des 15 findings traités (2 CRIT, 5 HIGH, 8 MEDIUM), le même motif a été répété :
+
+1. **Comprendre avant de coder** — retracer le vrai chemin du bug dans le graphe `connections`
+   des workflows (pas juste lire le nom du node), plutôt que corriger à l'aveugle. Ça a permis de
+   fermer 2 findings comme faux positifs (`05` appelle bien F-08 indirectement, `08` était déjà
+   gardé pour `project_signals`) au lieu de coder un fix inutile.
+2. **Vérifier l'intégrité structurelle après chaque édition** — script Python : aucun ID/nom de
+   node dupliqué, aucune connexion pendante, **aucun cycle** (détection ajoutée après avoir
+   moi-même introduit une boucle infinie dans `11-time-log-offer` en réordonnant des nodes —
+   retrouvée par DFS avant même d'envoyer en revue).
+3. **Agent de sécurité adversarial avant chaque commit** — jamais committé sans revue. Sur les
+   ~15 fixes, l'agent a trouvé et fait corriger avant commit : un `webhookId` dupliqué, deux
+   branches vraie/fausse inversées préexistantes (`If Time Parsed?`, `If Colleague Found?`), une
+   réponse HTTP mal formée (`Check Colleague Scheduled` sans "Full Response"), un `continueOnFail`
+   manquant qui aurait transformé une erreur API transitoire en blocage permanent (Drive/Gmail
+   dans `01c`), et une référence de channel cassée par l'insertion mécanique d'un node de rollback.
+4. **Commit atomique par fix, doc mise à jour en parallèle** — jamais de fix "en attente" sans
+   trace dans ce fichier, pour qu'une coupure de session ne perde pas le contexte.
+
+Résultat : code plus solide qu'avant l'audit, mais toujours **zéro test end-to-end réel** — voir
+"État global" ci-dessous pour ce que ça veut dire concrètement.
+
 ## Prochaine session — reprendre ici
 
 Tous les CRIT (2), HIGH (5) et MEDIUM (8) de l'audit du 2026-07-04 sont réglés (ou vérifiés
