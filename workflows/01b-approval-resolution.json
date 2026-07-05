@@ -1192,7 +1192,7 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT discord_id AS colleague_discord_id, name, calendar_email AS colleague_calendar_email, clockify_user_id AS colleague_clockify_user_id\nFROM pipemind.roster\nWHERE active = TRUE AND role = 'developer'\n  AND LOWER(name) LIKE LOWER('%' || $1 || '%')\n  AND discord_id != $2\nLIMIT 1",
+        "query": "SELECT discord_id AS colleague_discord_id, name, calendar_email AS colleague_calendar_email, clockify_user_id AS colleague_clockify_user_id\nFROM pipemind.roster\nWHERE active = TRUE AND role = 'developer'\n  AND LOWER(name) = LOWER($1)\n  AND discord_id != $2\nLIMIT 1",
         "options": {
           "queryReplacement": "={{ [ $('Classify Event').item.json.content, $('Classify Event').item.json.discord_id ] }}"
         }
@@ -1270,7 +1270,13 @@
         "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/time-off/requests",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": {},
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1626,7 +1632,7 @@
         900
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nif (!((j.statusCode === 200 && (j.body?.length ?? 0) === 0) === true)) return [];\nreturn $input.all();"
+        "jsCode": "const clockify = $('Check Colleague Scheduled').first().json;\nconst clockifyOk = clockify.statusCode === 200;\nconst clockifyBusy = clockifyOk && (clockify.body?.length ?? 0) > 0;\n\nconst calRaw = $input.first().json;\nlet calOk = false, calBusy = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const data of Object.values(calRaw.calendars)) {\n      if (Array.isArray(data.busy) && data.busy.some(p => (new Date(p.end) - new Date(p.start)) / 3_600_000 >= 6)) {\n        calBusy = true;\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-06a: stricter source wins. SC-18-style failsafe: both sources down -> treat as unavailable.\nconst available = (clockifyOk || calOk) && !clockifyBusy && !calBusy;\n\nif (!available) return [];\nreturn $input.all();"
       }
     },
     {
@@ -1639,7 +1645,7 @@
         1050
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nif ((j.statusCode === 200 && (j.body?.length ?? 0) === 0) === true) return [];\nreturn $input.all();"
+        "jsCode": "const clockify = $('Check Colleague Scheduled').first().json;\nconst clockifyOk = clockify.statusCode === 200;\nconst clockifyBusy = clockifyOk && (clockify.body?.length ?? 0) > 0;\n\nconst calRaw = $input.first().json;\nlet calOk = false, calBusy = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const data of Object.values(calRaw.calendars)) {\n      if (Array.isArray(data.busy) && data.busy.some(p => (new Date(p.end) - new Date(p.start)) / 3_600_000 >= 6)) {\n        calBusy = true;\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-06a: stricter source wins. SC-18-style failsafe: both sources down -> treat as unavailable.\nconst available = (clockifyOk || calOk) && !clockifyBusy && !calBusy;\n\nif (available) return [];\nreturn $input.all();"
       }
     },
     {
@@ -1667,6 +1673,80 @@
       "parameters": {
         "jsCode": "const j = $input.first().json;\nif ((j.parse_ok) === true) return [];\nreturn $input.all();"
       }
+    },
+    {
+      "id": "check-colleague-calendar-ooo",
+      "name": "Check Colleague Calendar OOO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        800
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "pipemindGoogleCalendar",
+          "name": "Pipemind Google Calendar"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Resolve Colleague from Roster').item.json.colleague_calendar_email ? [{ id: $('Resolve Colleague from Roster').item.json.colleague_calendar_email }] : [] }) }}"
+      }
+    },
+    {
+      "id": "save-colleague-draft-message-id",
+      "name": "Save Colleague Draft Message ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3250,
+        900
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.approval_drafts\nSET discord_message_id = $1\nWHERE draft_id = $2::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Send Colleague Draft DM').item.json.id, $('Create Colleague Draft').item.json.draft_id ] }}"
+        }
+      },
+      "continueOnFail": false
+    },
+    {
+      "id": "save-meeting-draft-message-id",
+      "name": "Save Meeting Draft Message ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2750,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.approval_drafts\nSET discord_message_id = $1\nWHERE draft_id = $2::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Send Meeting Draft DM').item.json.id, $('Create Meeting Draft').item.json.draft_id ] }}"
+        }
+      },
+      "continueOnFail": false
     }
   ],
   "connections": {
@@ -2184,14 +2264,14 @@
       "main": [
         [
           {
-            "node": "Send Colleague Not Found DM",
+            "node": "Check Colleague Scheduled",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Check Colleague Scheduled",
+            "node": "Send Colleague Not Found DM",
             "type": "main",
             "index": 0
           }
@@ -2202,12 +2282,7 @@
       "main": [
         [
           {
-            "node": "Colleague Scheduled? (yes)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Colleague Scheduled? (no)",
+            "node": "Check Colleague Calendar OOO",
             "type": "main",
             "index": 0
           }
@@ -2240,7 +2315,7 @@
       "main": [
         [
           {
-            "node": "Update Offer Status = colleague_draft_pending",
+            "node": "Save Colleague Draft Message ID",
             "type": "main",
             "index": 0
           }
@@ -2278,7 +2353,7 @@
       "main": [
         [
           {
-            "node": "Update Offer Status = meeting_draft_pending",
+            "node": "Save Meeting Draft Message ID",
             "type": "main",
             "index": 0
           }
@@ -2367,6 +2442,44 @@
         [
           {
             "node": "Send Time Parse Fail DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Colleague Calendar OOO": {
+      "main": [
+        [
+          {
+            "node": "Colleague Scheduled? (yes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Colleague Scheduled? (no)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Colleague Draft Message ID": {
+      "main": [
+        [
+          {
+            "node": "Update Offer Status = colleague_draft_pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Meeting Draft Message ID": {
+      "main": [
+        [
+          {
+            "node": "Update Offer Status = meeting_draft_pending",
             "type": "main",
             "index": 0
           }
