@@ -32,30 +32,6 @@
       }
     },
     {
-      "id": "if-skip",
-      "name": "Skip?",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        500,
-        300
-      ],
-      "parameters": {
-        "jsCode": "const j = $input.first().json;\nif ((j.skip) === true) return [];\nreturn $input.all();"
-      }
-    },
-    {
-      "id": "skip-invalid",
-      "name": "Skip — Invalid Message",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        750,
-        100
-      ],
-      "parameters": {}
-    },
-    {
       "id": "fetch-client-identity",
       "name": "Fetch Client Identity",
       "type": "n8n-nodes-base.postgres",
@@ -102,17 +78,6 @@
       }
     },
     {
-      "id": "skip-not-client",
-      "name": "Skip — Not Client",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        1500,
-        200
-      ],
-      "parameters": {}
-    },
-    {
       "id": "check-pending-qa",
       "name": "Check Pending QA",
       "type": "n8n-nodes-base.postgres",
@@ -130,19 +95,6 @@
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT COUNT(*)::int AS pending_count\nFROM pipemind.approval_drafts\nWHERE feature_tag = 'F-02'\n  AND status = 'pending'\n  AND expires_at > now();"
-      }
-    },
-    {
-      "id": "if-too-many-pending",
-      "name": "Too Many Pending?",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1750,
-        600
-      ],
-      "parameters": {
-        "jsCode": "const count = $input.first().json.pending_count;\nif (count >= 2) return []; // too many pending QA drafts, stop\nreturn $input.all();"
       }
     },
     {
@@ -437,17 +389,6 @@
       ]
     },
     "Filter Message": {
-      "main": [
-        [
-          {
-            "node": "Fetch Client Identity",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Skip?": {
       "main": [
         [
           {

@@ -32,30 +32,6 @@
       }
     },
     {
-      "id": "if-skip",
-      "name": "Skip?",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        500,
-        300
-      ],
-      "parameters": {
-        "jsCode": "const j = $input.first().json;\nif ((j.skip) === true) return [];\nreturn $input.all();"
-      }
-    },
-    {
-      "id": "skip-not-join",
-      "name": "Skip — Not Join Event",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        750,
-        100
-      ],
-      "parameters": {}
-    },
-    {
       "id": "fetch-client-identity",
       "name": "Fetch Client Identity",
       "type": "n8n-nodes-base.postgres",
@@ -100,17 +76,6 @@
       "parameters": {
         "jsCode": "const j = $input.first().json;\nif (!((j.isClient) === true)) return [];\nreturn $input.all();"
       }
-    },
-    {
-      "id": "skip-not-client",
-      "name": "Skip — Not Client",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        1500,
-        200
-      ],
-      "parameters": {}
     },
     {
       "id": "claim-welcome-slot",
@@ -266,17 +231,6 @@
       ]
     },
     "Filter Join Event": {
-      "main": [
-        [
-          {
-            "node": "Fetch Client Identity",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Skip?": {
       "main": [
         [
           {

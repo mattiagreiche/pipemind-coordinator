@@ -32,19 +32,6 @@
       }
     },
     {
-      "id": "if-skip",
-      "name": "Skip?",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        500,
-        300
-      ],
-      "parameters": {
-        "jsCode": "const j = $input.first().json;\nif ((j.skip) === true) return [];\nreturn $input.all();"
-      }
-    },
-    {
       "id": "fetch-roster",
       "name": "Fetch Roster",
       "type": "n8n-nodes-base.postgres",
@@ -478,17 +465,6 @@
       ]
     },
     "Filter Message": {
-      "main": [
-        [
-          {
-            "node": "Fetch Roster",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Skip?": {
       "main": [
         [
           {

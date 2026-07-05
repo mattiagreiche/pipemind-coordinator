@@ -32,30 +32,6 @@
       }
     },
     {
-      "id": "if-skip",
-      "name": "Skip?",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        500,
-        300
-      ],
-      "parameters": {
-        "jsCode": "const j = $input.first().json;\nif ((j.skip) === true) return [];\nreturn $input.all();"
-      }
-    },
-    {
-      "id": "skip-not-dm",
-      "name": "Skip — Not DM",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        750,
-        100
-      ],
-      "parameters": {}
-    },
-    {
       "id": "fetch-roster",
       "name": "Fetch Roster",
       "type": "n8n-nodes-base.postgres",
@@ -100,17 +76,6 @@
       "parameters": {
         "jsCode": "const j = $input.first().json;\nif (!((j.devVerified) === true)) return [];\nreturn $input.all();"
       }
-    },
-    {
-      "id": "skip-not-developer",
-      "name": "Skip — Not Developer",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        1500,
-        200
-      ],
-      "parameters": {}
     },
     {
       "id": "fetch-github",
@@ -697,17 +662,6 @@
       ]
     },
     "Filter DM Message": {
-      "main": [
-        [
-          {
-            "node": "Fetch Roster",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Skip?": {
       "main": [
         [
           {
