@@ -146,17 +146,6 @@
       }
     },
     {
-      "id": "skip-too-many",
-      "name": "Skip — Too Many Pending",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        2000,
-        400
-      ],
-      "parameters": {}
-    },
-    {
       "id": "fetch-github",
       "name": "Fetch GitHub Signals",
       "type": "n8n-nodes-base.httpRequest",
@@ -376,6 +365,63 @@
           ]
         }
       }
+    },
+    {
+      "id": "if-too-many-pending-yes",
+      "name": "Too Many Pending? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        600
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!(j.pending_count >= 2)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-too-many-pending-no",
+      "name": "Too Many Pending? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        750
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (j.pending_count >= 2) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "notify-tl-too-many-pending",
+      "name": "Notify TL — Too Many Pending QA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        450
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] A new client question came in, but there are already 2 or more Q&A drafts pending your approval. I could not queue a new draft. Please review the pending drafts in this channel so the backlog clears and I can answer the client.' }) }}"
+      }
     }
   ],
   "connections": {
@@ -449,18 +495,12 @@
       "main": [
         [
           {
-            "node": "Too Many Pending?",
+            "node": "Too Many Pending? (yes)",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Too Many Pending?": {
-      "main": [
-        [
+          },
           {
-            "node": "Fetch GitHub Signals",
+            "node": "Too Many Pending? (no)",
             "type": "main",
             "index": 0
           }
@@ -571,6 +611,28 @@
         [
           {
             "node": "Return Draft Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Too Many Pending? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Notify TL — Too Many Pending QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Too Many Pending? (no)": {
+      "main": [
+        [
+          {
+            "node": "Fetch GitHub Signals",
             "type": "main",
             "index": 0
           }
