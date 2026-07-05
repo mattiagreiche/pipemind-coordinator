@@ -94,7 +94,7 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT COUNT(*)::int AS pending_count\nFROM pipemind.approval_drafts\nWHERE feature_tag = 'F-02'\n  AND status = 'pending'\n  AND expires_at > now();"
+        "query": "SELECT (\n  (SELECT COUNT(*)::int FROM pipemind.approval_drafts\n     WHERE feature_tag = 'F-02' AND status = 'pending' AND expires_at > now())\n  +\n  (SELECT COUNT(*)::int FROM pipemind.teammate_queries\n     WHERE status = 'pending' AND deadline_at > now())\n) AS pending_count;"
       }
     },
     {
@@ -407,6 +407,416 @@
         "contentType": "json",
         "body": "={{ JSON.stringify({ content: '[Pipemind] A new client question came in, but there are already 2 or more Q&A drafts pending your approval. I could not queue a new draft. Please review the pending drafts in this channel so the backlog clears and I can answer the client.' }) }}"
       }
+    },
+    {
+      "id": "is-holding-yes",
+      "name": "Is Holding? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3500,
+        950
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!(j.is_holding === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "is-holding-no",
+      "name": "Is Holding? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3500,
+        750
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (j.is_holding === true) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "fetch-known-areas",
+      "name": "Fetch Known Feature Areas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3750,
+        950
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT feature_area FROM pipemind.project_signals;"
+      }
+    },
+    {
+      "id": "identify-feature-area",
+      "name": "Identify Feature Area",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4000,
+        950
+      ],
+      "parameters": {
+        "jsCode": "// F-02.2: identify which known feature area the client's question is about, so we\n// know who to ask. Word-boundary substring match against already-known area names\n// (from project_signals) — no LLM call needed, and no Jira assignee data used (SC-17\n// forbids extracting individual attribution from Jira for any purpose).\nconst rows = $input.all();\nconst areas = rows.map(r => String(r.json.feature_area || '')).filter(Boolean);\nconst question = String($('Assemble Context').item.json.client_question || '').toLowerCase();\n\nconst hasWordBoundary = (haystack, needle) => {\n  const idx = haystack.indexOf(needle);\n  if (idx === -1) return false;\n  const pre = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n  const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n  return pre && post;\n};\n\nlet matched = null;\nfor (const area of areas) {\n  if (hasWordBoundary(question, area.toLowerCase())) { matched = area; break; }\n}\n\nreturn [{ json: { feature_area: matched } }];"
+      }
+    },
+    {
+      "id": "feature-area-yes",
+      "name": "Feature Area Identified? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4250,
+        950
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!j.feature_area) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "feature-area-no",
+      "name": "Feature Area Identified? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4250,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (j.feature_area) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "find-candidate-developer",
+      "name": "Find Candidate Developer",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4500,
+        950
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT r.discord_id, r.calendar_email, r.clockify_user_id\nFROM pipemind.standup_records sr\nJOIN pipemind.roster r ON r.discord_id = sr.discord_id\nWHERE sr.feature_area = $1\n  AND r.active = TRUE AND r.role = 'developer' AND r.muted = FALSE\nORDER BY sr.standup_date DESC, sr.ingested_at DESC\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [ $('Identify Feature Area').item.json.feature_area ] }}"
+        }
+      }
+    },
+    {
+      "id": "candidate-found-yes",
+      "name": "Candidate Found? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4750,
+        950
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length === 0) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "candidate-found-no",
+      "name": "Candidate Found? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4750,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "check-candidate-scheduled",
+      "name": "Check Candidate Scheduled",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5000,
+        900
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/time-off/requests",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
+          ]
+        },
+        "sendQueryParameters": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "userId",
+              "value": "={{ $json.clockify_user_id }}"
+            },
+            {
+              "name": "start",
+              "value": "={{ new Date().toISOString().split('T')[0] + 'T00:00:00Z' }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ new Date().toISOString().split('T')[0] + 'T23:59:59Z' }}"
+            },
+            {
+              "name": "status",
+              "value": "APPROVED"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-candidate-calendar-ooo",
+      "name": "Check Candidate Calendar OOO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5250,
+        900
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "pipemindGoogleCalendar",
+          "name": "Pipemind Google Calendar"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Find Candidate Developer').item.json.calendar_email ? [{ id: $('Find Candidate Developer').item.json.calendar_email }] : [] }) }}"
+      }
+    },
+    {
+      "id": "candidate-scheduled-yes",
+      "name": "Candidate Scheduled? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5500,
+        850
+      ],
+      "parameters": {
+        "jsCode": "const clockify = $('Check Candidate Scheduled').first().json;\nconst clockifyOk = clockify.statusCode === 200;\nconst clockifyBusy = clockifyOk && (clockify.body?.length ?? 0) > 0;\n\nconst calRaw = $input.first().json;\nlet calOk = false, calBusy = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const data of Object.values(calRaw.calendars)) {\n      if (Array.isArray(data.busy) && data.busy.some(p => (new Date(p.end) - new Date(p.start)) / 3_600_000 >= 6)) {\n        calBusy = true;\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-06a: stricter source wins. SC-18-style failsafe: both sources down -> treat as unavailable.\nconst available = (clockifyOk || calOk) && !clockifyBusy && !calBusy;\n\nif (!available) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "candidate-scheduled-no",
+      "name": "Candidate Scheduled? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5500,
+        1000
+      ],
+      "parameters": {
+        "jsCode": "const clockify = $('Check Candidate Scheduled').first().json;\nconst clockifyOk = clockify.statusCode === 200;\nconst clockifyBusy = clockifyOk && (clockify.body?.length ?? 0) > 0;\n\nconst calRaw = $input.first().json;\nlet calOk = false, calBusy = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const data of Object.values(calRaw.calendars)) {\n      if (Array.isArray(data.busy) && data.busy.some(p => (new Date(p.end) - new Date(p.start)) / 3_600_000 >= 6)) {\n        calBusy = true;\n      }\n    }\n  }\n} catch (_) {}\n\nconst available = (clockifyOk || calOk) && !clockifyBusy && !calBusy;\n\nif (available) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "open-candidate-dm-channel",
+      "name": "Open Candidate DM Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5750,
+        850
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/v10/users/@me/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ recipient_id: $('Find Candidate Developer').item.json.discord_id }) }}"
+      }
+    },
+    {
+      "id": "compose-teammate-dm",
+      "name": "Compose Teammate Query DM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6000,
+        850
+      ],
+      "parameters": {
+        "jsCode": "const question = String($('Assemble Context').item.json.client_question || '')\n  .replace(/[\\x00-\\x1F\\x7F]/g, ' ')\n  .trim()\n  .slice(0, 1000);\n\nconst dmChannelId = $('Open Candidate DM Channel').item.json.id || null;\n\nconst text = [\n  '[Pipemind] Quick question from a client that I could not confidently answer on my own \\u2014 could you help?',\n  '',\n  '\"' + question + '\"',\n  '',\n  'Just reply here with what you know. I will turn your reply into an answer for the client, and the team lead approves it before anything is sent \\u2014 nothing you say goes to the client directly.'\n].join('\\n');\n\n// F-02.3: 2 hours from now, capped at end of the working day (EOD_TIME) so a question\n// asked late in the day doesn't silently roll a \"same working day\" deadline into tomorrow.\nconst now = new Date();\nconst twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);\nconst eodTime = String($env.EOD_TIME || '17:00');\nconst eodParts = eodTime.split(':').map(n => parseInt(n, 10) || 0);\nconst todayEod = new Date(now);\ntodayEod.setHours(eodParts[0] ?? 17, eodParts[1] ?? 0, 0, 0);\nconst deadline = twoHoursLater < todayEod ? twoHoursLater : todayEod;\n\nreturn [{ json: { dm_channel_id: dmChannelId, dm_text: text, deadline_iso: deadline.toISOString() } }];"
+      }
+    },
+    {
+      "id": "insert-teammate-query",
+      "name": "Insert Teammate Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        6250,
+        850
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.teammate_queries\n  (client_question, client_channel_id, feature_area, asked_discord_id, asked_dm_channel_id, deadline_at)\nVALUES ($1, $2, $3, $4, $5, $6)\nRETURNING query_id;",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Assemble Context').item.json.client_question,\n  $('Filter Message').item.json.channel_id,\n  $('Identify Feature Area').item.json.feature_area,\n  $('Find Candidate Developer').item.json.discord_id,\n  $('Compose Teammate Query DM').item.json.dm_channel_id,\n  $('Compose Teammate Query DM').item.json.deadline_iso\n] }}"
+        }
+      }
+    },
+    {
+      "id": "send-teammate-query-dm",
+      "name": "Send Teammate Query DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6500,
+        850
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Compose Teammate Query DM').item.json.dm_channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ content: $('Compose Teammate Query DM').item.json.dm_text }) }}"
+      }
+    },
+    {
+      "id": "insert-query-ok",
+      "name": "Insert Query OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6375,
+        850
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "teammate-dm-sent-ok",
+      "name": "Teammate DM Sent OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6750,
+        850
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "mark-teammate-query-failed",
+      "name": "Mark Teammate Query Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        7000,
+        950
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.teammate_queries SET status = 'timed_out' WHERE query_id = $1::uuid AND status = 'pending';",
+        "options": {
+          "queryReplacement": "={{ [ $('Insert Teammate Query').item.json.query_id ] }}"
+        }
+      }
     }
   ],
   "connections": {
@@ -570,6 +980,254 @@
       ]
     },
     "Extract Answer": {
+      "main": [
+        [
+          {
+            "node": "Is Holding? (yes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Holding? (no)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Holding? (no)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Team Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Holding? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Known Feature Areas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Known Feature Areas": {
+      "main": [
+        [
+          {
+            "node": "Identify Feature Area",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Feature Area": {
+      "main": [
+        [
+          {
+            "node": "Feature Area Identified? (yes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Feature Area Identified? (no)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Feature Area Identified? (no)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Team Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Feature Area Identified? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Find Candidate Developer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Candidate Developer": {
+      "main": [
+        [
+          {
+            "node": "Candidate Found? (yes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Candidate Found? (no)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Candidate Found? (no)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Team Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Candidate Found? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Check Candidate Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Candidate Scheduled": {
+      "main": [
+        [
+          {
+            "node": "Check Candidate Calendar OOO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Candidate Calendar OOO": {
+      "main": [
+        [
+          {
+            "node": "Candidate Scheduled? (yes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Candidate Scheduled? (no)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Candidate Scheduled? (no)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Team Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Candidate Scheduled? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Open Candidate DM Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Candidate DM Channel": {
+      "main": [
+        [
+          {
+            "node": "Compose Teammate Query DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Teammate Query DM": {
+      "main": [
+        [
+          {
+            "node": "Insert Teammate Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Teammate Query": {
+      "main": [
+        [
+          {
+            "node": "Insert Query OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Teammate Query DM": {
+      "main": [
+        [
+          {
+            "node": "Teammate DM Sent OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Query OK?": {
+      "main": [
+        [
+          {
+            "node": "Send Teammate Query DM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Team Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Teammate DM Sent OK?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Mark Teammate Query Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Teammate Query Failed": {
       "main": [
         [
           {

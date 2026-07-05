@@ -1,5 +1,5 @@
 {
-  "name": "13 — Expiry Janitor: approval_drafts",
+  "name": "13 — Expiry Janitor: approval_drafts + teammate_queries",
   "nodes": [
     {
       "id": "schedule-trigger",
@@ -40,6 +40,79 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts SET status = 'expired', settled_at = now() WHERE status = 'pending' AND expires_at <= now() RETURNING draft_id;"
       }
+    },
+    {
+      "id": "sweep-timed-out-teammate-queries",
+      "name": "Sweep Timed-Out Teammate Queries",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        250,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.teammate_queries SET status = 'timed_out' WHERE status = 'pending' AND deadline_at <= now() RETURNING query_id, client_question, client_channel_id, feature_area;"
+      }
+    },
+    {
+      "id": "fetch-team-lead-timeout",
+      "name": "Fetch Team Lead (Timeout)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        500,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT discord_id FROM pipemind.roster WHERE active = true AND role = 'team_lead' ORDER BY name ASC LIMIT 1;"
+      }
+    },
+    {
+      "id": "prepare-f03-input-timeout",
+      "name": "Prepare F-03 Input (Timeout)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        500
+      ],
+      "parameters": {
+        "jsCode": "// F-02.3: 2-hour window passed with no reply from the asked teammate -- fall back to\n// the same honest holding response 05-client-qa.json drafts when it never finds a\n// scheduled teammate to ask in the first place.\nconst tlRow = $input.first().json;\nconst query = $('Sweep Timed-Out Teammate Queries').item.json;\n\nif (!String($env.F03_WORKFLOW_ID || '').trim()) {\n  throw new Error('F-02: n8n variable F03_WORKFLOW_ID is not set. Set it in n8n Settings → Variables after importing workflows.');\n}\nif (!tlRow || !tlRow.discord_id) {\n  throw new Error('F-02: No active team_lead found in roster. Add a member with role=team_lead.');\n}\n\nreturn [{ json: {\n  feature_tag: 'F-02',\n  content_type: 'qa_reply',\n  draft_text: 'Thank you for your question. We are looking into this and will follow up with you shortly.',\n  approver_discord_id: String(tlRow.discord_id),\n  approval_channel_id: $env.TL_CHANNEL_ID,\n  context_json: {\n    client_channel_id: query.client_channel_id\n  }\n} }];"
+      }
+    },
+    {
+      "id": "call-f03-timeout",
+      "name": "Call F-03 Approval Gate (Timeout)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        500
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $env.F03_WORKFLOW_ID }}",
+          "mode": "id"
+        },
+        "waitForSubWorkflow": true,
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -48,6 +121,44 @@
         [
           {
             "node": "Sweep Expired Drafts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sweep Timed-Out Teammate Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sweep Timed-Out Teammate Queries": {
+      "main": [
+        [
+          {
+            "node": "Fetch Team Lead (Timeout)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Team Lead (Timeout)": {
+      "main": [
+        [
+          {
+            "node": "Prepare F-03 Input (Timeout)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare F-03 Input (Timeout)": {
+      "main": [
+        [
+          {
+            "node": "Call F-03 Approval Gate (Timeout)",
             "type": "main",
             "index": 0
           }
