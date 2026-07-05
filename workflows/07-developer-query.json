@@ -34,25 +34,14 @@
     {
       "id": "if-skip",
       "name": "Skip?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         500,
         300
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.skip }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif ((j.skip) === true) return [];\nreturn $input.all();"
       }
     },
     {
@@ -102,25 +91,14 @@
     {
       "id": "if-dev-verified",
       "name": "Developer Verified?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
         450
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.devVerified }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (!((j.devVerified) === true)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -274,30 +252,6 @@
       }
     },
     {
-      "id": "if-response-clean",
-      "name": "Response Clean?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        3250,
-        600
-      ],
-      "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.clean }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
       "id": "post-dm-reply",
       "name": "Post DM Reply",
       "type": "n8n-nodes-base.httpRequest",
@@ -370,53 +324,6 @@
       ],
       "parameters": {
         "jsCode": "const msg = $('Verify Developer').item.json;\nconst content = String(msg.content || '').trim();\nconst discordId = String(msg.author_id || '');\nconst channelId = String(msg.channel_id || '');\n\n// Detect F-07 time-entry approval commands only\nconst isYes = /^yes$/i.test(content);\nconst isNo  = /^no$/i.test(content);\nconst editMatch = content.match(/^edit\\s+(\\d+(?:\\.\\d+)?)\\s*h(?:ours?)?$/i);\nconst isEdit = !!editMatch && (() => {\n  const h = parseFloat(editMatch[1]);\n  return h > 0 && h <= 16;\n})();\n\nconst isApprovalCmd = isYes || isNo || isEdit;\nconst editedText = isEdit ? content : null;\n\nreturn [{ json: {\n  is_approval_cmd: isApprovalCmd,\n  cmd:             isYes ? 'yes' : isNo ? 'no' : isEdit ? 'edit' : null,\n  edited_text:     editedText,\n  discord_id:      discordId,\n  channel_id:      channelId,\n  content\n} }];"
-      }
-    },
-    {
-      "id": "route-msg-type",
-      "name": "Route Message Type",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3,
-      "position": [
-        1750,
-        450
-      ],
-      "parameters": {
-        "mode": "rules",
-        "rules": {
-          "values": [
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.is_approval_cmd }}",
-                    "rightValue": true,
-                    "operator": {
-                      "type": "boolean",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "approval_cmd"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.is_approval_cmd }}",
-                    "rightValue": false,
-                    "operator": {
-                      "type": "boolean",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "query"
-            }
-          ]
-        }
       }
     },
     {
@@ -723,6 +630,58 @@
         "contentType": "json",
         "body": "={{ JSON.stringify({ content: '[Pipemind] Your approval was received but we encountered an error writing to Clockify. Please log your time manually for today.' }) }}"
       }
+    },
+    {
+      "id": "if-response-clean-true",
+      "name": "Response Clean? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3250,
+        600
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!((j.clean) === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-response-clean-false",
+      "name": "Response Clean? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3250,
+        750
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((j.clean) === true) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-msg-type-approval-cmd",
+      "name": "Route Message Type (approval_cmd)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        450
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!(j.is_approval_cmd === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-msg-type-query",
+      "name": "Route Message Type (query)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        600
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (j.is_approval_cmd === true) return [];\nreturn $input.all();"
+      }
     }
   ],
   "connections": {
@@ -750,13 +709,6 @@
     },
     "Skip?": {
       "main": [
-        [
-          {
-            "node": "Skip — Not DM",
-            "type": "main",
-            "index": 0
-          }
-        ],
         [
           {
             "node": "Fetch Roster",
@@ -793,13 +745,6 @@
         [
           {
             "node": "Detect Approval Command",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Skip — Not Developer",
             "type": "main",
             "index": 0
           }
@@ -876,25 +821,12 @@
       "main": [
         [
           {
-            "node": "Response Clean?",
+            "node": "Response Clean? (yes)",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Response Clean?": {
-      "main": [
-        [
+          },
           {
-            "node": "Post DM Reply",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Post Audit Fallback",
+            "node": "Response Clean? (no)",
             "type": "main",
             "index": 0
           }
@@ -905,27 +837,12 @@
       "main": [
         [
           {
-            "node": "Route Message Type",
+            "node": "Route Message Type (approval_cmd)",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Route Message Type": {
-      "approval_cmd": [
-        [
+          },
           {
-            "node": "Fetch Pending Draft",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ],
-      "query": [
-        [
-          {
-            "node": "Fetch GitHub Signals",
+            "node": "Route Message Type (query)",
             "type": "main",
             "index": 0
           }
@@ -1036,6 +953,50 @@
         [
           {
             "node": "Executor Failed DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Clean? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Post DM Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Clean? (no)": {
+      "main": [
+        [
+          {
+            "node": "Post Audit Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Message Type (approval_cmd)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Pending Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Message Type (query)": {
+      "main": [
+        [
+          {
+            "node": "Fetch GitHub Signals",
             "type": "main",
             "index": 0
           }

@@ -34,49 +34,14 @@
     {
       "id": "if-skip",
       "name": "Skip?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         500,
         300
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.skip }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
-      "id": "route-f06",
-      "name": "Route F-06?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        750,
-        400
-      ],
-      "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ ['f06_command','f06_free_text'].includes($json.eventType) }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif ((j.skip) === true) return [];\nreturn $input.all();"
       }
     },
     {
@@ -128,30 +93,6 @@
               "rightValue": "={{ $('Classify Event').item.json.actor_discord_id }}",
               "operator": {
                 "type": "string",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
-      "id": "if-expired",
-      "name": "Expired?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1500,
-        100
-      ],
-      "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ new Date($json.expires_at) < new Date() }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
                 "operation": "equals"
               }
             }
@@ -439,25 +380,14 @@
     {
       "id": "if-edit-author-valid",
       "name": "Edit Author Valid?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2250,
         650
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.skip }}",
-              "rightValue": false,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (!((j.skip) === false)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -521,25 +451,14 @@
     {
       "id": "if-f06-sender-valid",
       "name": "If F-06 Sender Valid?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         875,
         600
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length > 0 && $input.first().json.discord_id !== null }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (!(($input.all().length > 0 && $input.first().json.discord_id !== null) === true)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -1385,30 +1304,6 @@
       }
     },
     {
-      "id": "if-colleague-scheduled",
-      "name": "If Colleague Scheduled?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        2750,
-        900
-      ],
-      "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.statusCode === 200 && ($json.body?.length ?? 0) === 0 }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
       "id": "send-colleague-unavailable-dm",
       "name": "Send Colleague Unavailable DM",
       "type": "n8n-nodes-base.httpRequest",
@@ -1558,30 +1453,6 @@
       }
     },
     {
-      "id": "if-time-parsed",
-      "name": "If Time Parsed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        2250,
-        1200
-      ],
-      "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.parse_ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
       "id": "send-time-parse-fail-dm",
       "name": "Send Time Parse Fail DM",
       "type": "n8n-nodes-base.httpRequest",
@@ -1692,6 +1563,110 @@
         }
       },
       "continueOnFail": false
+    },
+    {
+      "id": "route-f06-true",
+      "name": "Route F-06? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!((['f06_command','f06_free_text'].includes(j.eventType)) === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-f06-false",
+      "name": "Route F-06? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        550
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((['f06_command','f06_free_text'].includes(j.eventType)) === true) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-expired-true",
+      "name": "Expired? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!((new Date(j.expires_at) < new Date()) === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-expired-false",
+      "name": "Expired? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        250
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((new Date(j.expires_at) < new Date()) === true) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-colleague-scheduled-true",
+      "name": "Colleague Scheduled? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2750,
+        900
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!((j.statusCode === 200 && (j.body?.length ?? 0) === 0) === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-colleague-scheduled-false",
+      "name": "Colleague Scheduled? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2750,
+        1050
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((j.statusCode === 200 && (j.body?.length ?? 0) === 0) === true) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-time-parsed-true",
+      "name": "Time Parsed? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        1200
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!((j.parse_ok) === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-time-parsed-false",
+      "name": "Time Parsed? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        1350
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((j.parse_ok) === true) return [];\nreturn $input.all();"
+      }
     }
   ],
   "connections": {
@@ -1721,32 +1696,12 @@
       "main": [
         [
           {
-            "node": "Skip",
+            "node": "Route F-06? (yes)",
             "type": "main",
             "index": 0
-          }
-        ],
-        [
+          },
           {
-            "node": "Route F-06?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Route F-06?": {
-      "main": [
-        [
-          {
-            "node": "Verify F-06 Sender",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Lookup Draft",
+            "node": "Route F-06? (no)",
             "type": "main",
             "index": 0
           }
@@ -1772,13 +1727,6 @@
             "type": "main",
             "index": 0
           }
-        ],
-        [
-          {
-            "node": "Skip",
-            "type": "main",
-            "index": 0
-          }
         ]
       ]
     },
@@ -1797,7 +1745,12 @@
       "main": [
         [
           {
-            "node": "Expired?",
+            "node": "Expired? (yes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Expired? (no)",
             "type": "main",
             "index": 0
           }
@@ -1805,24 +1758,6 @@
         [
           {
             "node": "Skip",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Expired?": {
-      "main": [
-        [
-          {
-            "node": "Notify Expired",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Route Action",
             "type": "main",
             "index": 0
           }
@@ -1923,13 +1858,6 @@
         [
           {
             "node": "Save Edited Text",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Skip",
             "type": "main",
             "index": 0
           }
@@ -2274,25 +2202,12 @@
       "main": [
         [
           {
-            "node": "If Colleague Scheduled?",
+            "node": "Colleague Scheduled? (yes)",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "If Colleague Scheduled?": {
-      "main": [
-        [
+          },
           {
-            "node": "Create Colleague Draft",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Send Colleague Unavailable DM",
+            "node": "Colleague Scheduled? (no)",
             "type": "main",
             "index": 0
           }
@@ -2336,25 +2251,12 @@
       "main": [
         [
           {
-            "node": "If Time Parsed?",
+            "node": "Time Parsed? (yes)",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "If Time Parsed?": {
-      "main": [
-        [
+          },
           {
-            "node": "Send Time Parse Fail DM",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Create Meeting Draft",
+            "node": "Time Parsed? (no)",
             "type": "main",
             "index": 0
           }
@@ -2377,6 +2279,94 @@
         [
           {
             "node": "Update Offer Status = meeting_draft_pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route F-06? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Verify F-06 Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route F-06? (no)": {
+      "main": [
+        [
+          {
+            "node": "Lookup Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expired? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Notify Expired",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expired? (no)": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Colleague Scheduled? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Create Colleague Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Colleague Scheduled? (no)": {
+      "main": [
+        [
+          {
+            "node": "Send Colleague Unavailable DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Time Parsed? (yes)": {
+      "main": [
+        [
+          {
+            "node": "Create Meeting Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Time Parsed? (no)": {
+      "main": [
+        [
+          {
+            "node": "Send Time Parse Fail DM",
             "type": "main",
             "index": 0
           }

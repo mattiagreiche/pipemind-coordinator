@@ -34,25 +34,14 @@
     {
       "id": "if-skip",
       "name": "Skip?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         500,
         300
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.skip }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif ((j.skip) === true) return [];\nreturn $input.all();"
       }
     },
     {
@@ -102,25 +91,14 @@
     {
       "id": "if-client-join",
       "name": "Client Join?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
         450
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.isClient }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (!((j.isClient) === true)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -302,13 +280,6 @@
       "main": [
         [
           {
-            "node": "Skip — Not Join Event",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "Fetch Client Identity",
             "type": "main",
             "index": 0
@@ -343,13 +314,6 @@
         [
           {
             "node": "Claim Welcome Slot",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Skip — Not Client",
             "type": "main",
             "index": 0
           }

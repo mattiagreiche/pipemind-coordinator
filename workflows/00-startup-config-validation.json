@@ -66,30 +66,6 @@
       }
     },
     {
-      "id": "if-valid",
-      "name": "Roster Valid?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        800,
-        250
-      ],
-      "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.valid }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
       "id": "split-entries",
       "name": "Split Entries",
       "type": "n8n-nodes-base.code",
@@ -233,30 +209,6 @@
       }
     },
     {
-      "id": "env-vars-ok",
-      "name": "Env Vars OK?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        450,
-        300
-      ],
-      "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.env_valid }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
       "id": "alert-tl-env-vars",
       "name": "Alert TL — Missing Env Vars",
       "type": "n8n-nodes-base.httpRequest",
@@ -285,6 +237,58 @@
         "sendBody": true,
         "contentType": "json",
         "body": "={{ JSON.stringify({ content: '[Pipemind] **Startup error** — missing required environment variables: `' + $('Validate Env Vars').item.json.missing_vars.join('`, `') + '`. The agent cannot operate until these are set.' }) }}"
+      }
+    },
+    {
+      "id": "if-valid-true",
+      "name": "Roster Valid? (true)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        250
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!((j.valid) === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-valid-false",
+      "name": "Roster Valid? (false)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((j.valid) === true) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "env-vars-ok-true",
+      "name": "Env Vars OK? (true)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        450,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!((j.env_valid) === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "env-vars-ok-false",
+      "name": "Env Vars OK? (false)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        450,
+        450
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((j.env_valid) === true) return [];\nreturn $input.all();"
       }
     }
   ],
@@ -326,25 +330,12 @@
       "main": [
         [
           {
-            "node": "Roster Valid?",
+            "node": "Roster Valid? (true)",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Roster Valid?": {
-      "main": [
-        [
+          },
           {
-            "node": "Split Entries",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Set roster_valid = false",
+            "node": "Roster Valid? (false)",
             "type": "main",
             "index": 0
           }
@@ -399,14 +390,41 @@
       "main": [
         [
           {
-            "node": "Env Vars OK?",
+            "node": "Env Vars OK? (true)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Env Vars OK? (false)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Env Vars OK?": {
+    "Roster Valid? (true)": {
+      "main": [
+        [
+          {
+            "node": "Split Entries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roster Valid? (false)": {
+      "main": [
+        [
+          {
+            "node": "Set roster_valid = false",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Env Vars OK? (true)": {
       "main": [
         [
           {
@@ -414,7 +432,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Env Vars OK? (false)": {
+      "main": [
         [
           {
             "node": "Set roster_valid = false",

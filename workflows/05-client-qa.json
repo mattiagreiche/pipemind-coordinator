@@ -34,25 +34,14 @@
     {
       "id": "if-skip",
       "name": "Skip?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         500,
         300
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.skip }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif ((j.skip) === true) return [];\nreturn $input.all();"
       }
     },
     {
@@ -102,25 +91,14 @@
     {
       "id": "if-client-verified",
       "name": "Client Verified?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
         450
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.clientVerified }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (!((j.clientVerified) === true)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -427,13 +405,6 @@
       "main": [
         [
           {
-            "node": "Skip — Invalid Message",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "Fetch Client Identity",
             "type": "main",
             "index": 0
@@ -468,13 +439,6 @@
         [
           {
             "node": "Check Pending QA",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Skip — Not Client",
             "type": "main",
             "index": 0
           }

@@ -402,25 +402,14 @@
     {
       "id": "a9b0c1d2-e3f4-5678-abcd-789012345678",
       "name": "If Offer Row Created?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         3750,
         300
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.offer_id !== undefined && $json.offer_id !== null }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (!((j.offer_id !== undefined && j.offer_id !== null) === true)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -468,30 +457,6 @@
       }
     },
     {
-      "id": "d2e3f4a5-b6c7-8901-defa-012345678901",
-      "name": "If DM Sent?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        4500,
-        300
-      ],
-      "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.dm_sent }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
       "id": "e3f4a5b6-c7d8-9012-efab-123456789012",
       "name": "Mark Offer DM Failed",
       "type": "n8n-nodes-base.postgres",
@@ -535,6 +500,32 @@
         "options": {
           "queryReplacement": "={{ JSON.stringify([$json.discord_id]) }}"
         }
+      }
+    },
+    {
+      "id": "d2e3f4a5-b6c7-8901-defa-012345678901-true",
+      "name": "DM Sent? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!((j.dm_sent) === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "d2e3f4a5-b6c7-8901-defa-012345678901-false",
+      "name": "DM Sent? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        450
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((j.dm_sent) === true) return [];\nreturn $input.all();"
       }
     }
   ],
@@ -739,8 +730,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "Send Offer DM": {
@@ -758,14 +748,19 @@
       "main": [
         [
           {
-            "node": "If DM Sent?",
+            "node": "DM Sent? (yes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DM Sent? (no)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "If DM Sent?": {
+    "DM Sent? (yes)": {
       "main": [
         [
           {
@@ -773,7 +768,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "DM Sent? (no)": {
+      "main": [
         [
           {
             "node": "Mark Offer DM Failed",
