@@ -49,10 +49,10 @@ et appliquent les règles de privacy — la logique est correcte jusqu'aux appel
 
 L'audit a trouvé que le canal d'approbation (réactions ✅/✏️/❌) était **mort de bout en bout** :
 `01b` utilisait un node inexistant en n8n 1.91.3, et le forwarder n'écoutait pas les réactions.
-**Fix appliqué le 2026-07-04** (webhook + intents réactions + double-forward TL channel et DM
-vers 01b) — en attente de revue sécurité avant commit.
+Tous les CRIT et HIGH de cet audit sont maintenant résolus (voir ci-dessous pour les commits).
+Restent les MEDIUM et LOW, non bloquants.
 
-Findings encore ouverts, par sévérité :
+Findings par sévérité :
 
 **CRIT — les deux résolus (2026-07-04)**
 - [x] Canal d'approbation mort (01b webhook + réactions Discord) — voir commit `7d01c51`
@@ -62,16 +62,23 @@ Findings encore ouverts, par sévérité :
   07, 10, 12 — voir commit `b365c1b`. Bonus : bug de câblage inversé corrigé dans 01b
   (`If Time Parsed?` avait ses branches vraie/fausse échangées).
 
-**HIGH
-- [ ] LIKE injection dans la recherche de collègue (`01b`, node `Resolve Colleague from Roster`)
-      — passer en exact match
-- [ ] Check Google Calendar manquant pour SC-06a (`01b`, node `Check Colleague Scheduled`)
-- [ ] F-06.2/F-06.3 (looper un collègue, planifier une réunion) = code mort — le
-      `discord_message_id` n'est jamais rattaché au draft après l'envoi Discord dans `01b`,
-      donc `Lookup Draft` ne peut jamais matcher la réaction ensuite
-- [ ] `00-startup-config-validation` — alerte config cassée référence la variable legacy
-      `TEAM_LEAD_APPROVAL_CHANNEL_ID` au lieu de `TL_CHANNEL_ID`, échoue silencieusement
-- [ ] `04-client-report` — pas de point d'entrée à la demande (seulement Schedule Trigger vendredi)
+**HIGH — les 5 résolus (2026-07-04)**
+- [x] LIKE injection dans la recherche de collègue (`01b`) — passé en exact match (commit `e55f4dc`)
+- [x] Check Google Calendar ajouté pour SC-06a (`01b`, merge Clockify+Calendar, stricter-wins,
+      fail-closed) — commit `e55f4dc`. Deux bugs préexistants trouvés et corrigés au passage :
+      `If Colleague Found?` avait ses branches vraie/fausse inversées, et `Check Colleague
+      Scheduled` n'activait pas "Full Response" donc son `statusCode`/`body` n'existaient jamais.
+- [x] F-06.2/F-06.3 réparés — `discord_message_id` maintenant rattaché au draft après l'envoi
+      Discord (`Save Colleague/Meeting Draft Message ID`) — commit `e55f4dc`
+- [x] Variables `TL_CHANNEL_ID`/`TEAM_LEAD_APPROVAL_CHANNEL_ID` unifiées en une seule
+      (`TL_CHANNEL_ID`, validée au démarrage) dans 6 workflows + `.env.example` +
+      `docker-compose.yml` — commit `0412558`. Le problème était plus large que prévu : les deux
+      variables coexistaient dans tout le coeur de l'approval gate (01/03/04/05/06), pas
+      seulement dans l'alerte de 00. Note : retirer manuellement l'ancienne ligne
+      `TEAM_LEAD_APPROVAL_CHANNEL_ID=` du `.env` local (morte, plus lue par aucun workflow).
+- [x] `04-client-report` — point d'entrée à la demande ajouté (`On-Demand Trigger`,
+      `executeWorkflowTrigger`, câblé sur le même chemin d'audit/approbation que le trigger
+      planifié) — commit `df3efd8`
 
 **MEDIUM**
 - [ ] `boundary_audit_passed` est un flag décoratif — jamais vérifié dans
