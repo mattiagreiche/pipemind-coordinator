@@ -21,6 +21,10 @@ réel, indépendamment de l'audit (jamais touchées cette session) :
 Donc le code est probablement bon, mais rien ne remplace un vrai test end-to-end une fois les
 credentials en place.
 
+**Reste à faire côté audit** : uniquement les LOW (cosmétiques, non bloquants — voir la liste
+sous "MEDIUM"/"LOW" plus bas : pas d'Expiry Janitor générique, colonne `qa_history` inutilisée,
+nodes `Skip?`/NoOp orphelins). Pas encore traités.
+
 ## Méthode suivie pendant la session d'audit (2026-07-04/05)
 
 Pour chacun des 15 findings traités (2 CRIT, 5 HIGH, 8 MEDIUM), le même motif a été répété :
