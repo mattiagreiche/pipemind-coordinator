@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events } = require('discord.js');
 
 const N8N_BASE = process.env.N8N_WEBHOOK_BASE || 'http://n8n:5678/webhook';
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
@@ -9,6 +9,7 @@ const WH_TL        = 'tl-interaction';
 const WH_CLIENT_QA = 'client-qa';
 const WH_MEMBER    = 'member-join';
 const WH_DEV       = 'dev-query';
+const WH_APPROVAL  = 'approval-resolution';
 
 if (!BOT_TOKEN) {
   console.error('[forwarder] DISCORD_BOT_TOKEN is not set — exiting');
@@ -22,7 +23,10 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.DirectMessageReactions,
   ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
 async function post(path, body) {
@@ -72,9 +76,10 @@ client.on(Events.MessageCreate, async (message) => {
   const channelId = message.channelId;
   const isDM = !message.guildId;
 
-  // TL channel → workflow 03
+  // TL channel → workflow 03 (intent) + workflow 01b (draft edit replies)
   if (channelId === TL_CHANNEL_ID) {
     await post(WH_TL, payload);
+    await post(WH_APPROVAL, payload);
     return;
   }
 
@@ -84,10 +89,34 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  // DMs → workflow 07 (developer query)
+  // DMs → workflow 07 (developer query) + workflow 01b (F-06 commands/free text)
   if (isDM) {
     await post(WH_DEV, payload);
+    await post(WH_APPROVAL, payload);
   }
+});
+
+client.on(Events.MessageReactionAdd, async (reaction, user) => {
+  if (user.bot) return;
+
+  if (reaction.partial) {
+    try {
+      await reaction.fetch();
+    } catch (err) {
+      console.error('[forwarder] failed to fetch partial reaction:', err.message);
+      return;
+    }
+  }
+
+  const d = {
+    message_id: reaction.message.id,
+    channel_id: reaction.message.channelId,
+    guild_id: reaction.message.guildId || undefined,
+    emoji: { name: reaction.emoji.name },
+    user_id: user.id,
+  };
+
+  await post(WH_APPROVAL, gatewayEnvelope('MESSAGE_REACTION_ADD', d));
 });
 
 client.on(Events.GuildMemberAdd, async (member) => {
