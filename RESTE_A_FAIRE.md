@@ -1,7 +1,47 @@
 # Pipemind Coordinator — État du projet
 
-*Mis à jour le 2026-07-05 — audit sécurité global post-merge (branche `main`) entièrement clos.
-Cette section reflète l'état réel vérifié par l'agent de sécurité, pas l'état espéré.*
+*Mis à jour le 2026-07-05 — audit sécurité global post-merge (branche `main`) entièrement clos,
+puis câblage de F-14 (Persistent Memory) dans les workflows consommateurs. Cette section reflète
+l'état réel vérifié par l'agent de sécurité, pas l'état espéré.*
+
+## F-14 (Persistent Memory) câblé — 2026-07-05
+
+**Why:** `09-standup-ingestion` écrivait déjà les signaux de standup dans
+`pipemind.project_signals`, mais rien ne les relisait — `04`/`05`/`07` construisaient leurs
+réponses uniquement depuis GitHub/Jira, et `03` avait un TODO littéral en attendant ce câblage.
+Ça violait la Règle #3 en pratique (les standups n'influençaient jamais un rapport, une réponse
+Q&A, une réponse TL, ou une réponse dev).
+
+**How to apply:** `08-memory-reader.json` est maintenant appelé (nouvelle variable
+`F14_WORKFLOW_ID`, à régler comme les autres `*_WORKFLOW_ID` — voir section 2) par :
+- `04-client-report` et `05-client-qa` (`purpose='report'`, Tier 1/Client) — commit `04503d6`
+- `03-tl-interaction` (`purpose='tl_internal'`, Tier 2) — remplace le TODO par de vrais signaux
+  anonymisés de zone/blocage
+- `07-developer-query` (`purpose='dev_self'`) — ajoute les standups du développeur lui-même
+  (F-17.2) en plus du contexte projet général (F-17.1)
+
+Deux vrais trous trouvés et corrigés pendant 4 passages de review sécurité successifs (pas
+seulement le câblage lui-même) :
+1. `status_summary` (remonte in fine à un transcript de standup, la donnée la moins fiable du
+   pipeline) entrait dans chaque prompt LLM sans filtre anti-injection — corrigé dans les 4
+   fichiers avec le même filtre étendu que `09-standup-ingestion` (délimiteurs `System:`/`###`/
+   `[INST]`/`<|im_start|>` etc.), + alignement de `Audit TL Response` (03) sur les `metricPatterns`
+   de `02-aggregation-boundary` (07 les avait déjà).
+2. Le masquage petite-équipe de `08-memory-reader` (F-08.3) ne portait que sur l'effectif total
+   (`< 3` développeurs actifs) — une zone à propriétaire unique reste ré-identifiable même sur une
+   équipe plus grande. Pour `purpose='report'` (Client, Tier 1, le plus strict — "aucune
+   attribution individuelle, nommée ou non" par F-08.1), `has_blocker` est maintenant retiré de
+   façon inconditionnelle, peu importe la taille d'équipe. `tl_internal`/`dev_self` gardent le
+   seuil par taille d'équipe existant (accepté tel quel — Tier 2 autorise explicitement les
+   signaux anonymisés de zone par F-08.2).
+
+**Risque résiduel accepté, à revisiter si besoin** : pour `tl_internal`/`dev_self`, une zone à
+propriétaire unique sur une équipe de 3+ développeurs reste ré-identifiable via `has_blocker`
+(le seuil ne regarde que l'effectif total, pas le nombre de contributeurs par zone). Corriger ça
+proprement demanderait une nouvelle requête (compter les contributeurs distincts par
+`feature_area` dans `standup_records`) — pas fait cette session, jugé disproportionné vs. le
+risque (Tier 2 autorise déjà ce type de signal par design). À revoir si une équipe réelle a une
+zone à propriétaire unique évidente.
 
 ## État global (résumé au 2026-07-05, audit clos)
 
@@ -52,16 +92,10 @@ Résultat : code plus solide qu'avant l'audit, mais toujours **zéro test end-to
 ## Prochaine session — reprendre ici
 
 Tous les CRIT (2), HIGH (5), MEDIUM (8, + 1 trouvé en cours de route) et LOW (3) de l'audit du
-2026-07-04/05 sont réglés (ou vérifiés faux positifs), agent sécurité + commit à chaque fois.
-Il reste :
-
-1. [ ] `08-memory-reader` n'est câblé nulle part encore (découvert le 2026-07-05, voir section
-   MEDIUM ci-dessous) — pas urgent, mais à garder en tête le jour où F-14/P1 le branche pour de
-   vrai : deux points de masquage additionnels à vérifier à ce moment-là.
-
-Le vrai blocage pour tester en prod reste les **credentials manquants** (GitHub et Google faits,
-Jira à confirmer) et les **IDs de workflow à mettre à jour dans `.env`** — voir sections 1 et 2
-plus bas, inchangées depuis le début.
+2026-07-04/05 sont réglés (ou vérifiés faux positifs), et F-14 (Persistent Memory) est maintenant
+câblé dans 03/04/05/07 (voir section dédiée plus haut). Le vrai blocage pour tester en prod reste
+les **credentials manquants** (GitHub et Google faits, Jira à confirmer) et les **IDs de workflow
+à mettre à jour dans `.env`** (dont le nouveau `F14_WORKFLOW_ID`) — voir sections 1 et 2 plus bas.
 
 ## Ce qui est fait
 
@@ -171,23 +205,22 @@ Findings par sévérité :
       15 fichiers workflows) — commit `a5c0aaa`
 - [x] `08-memory-reader` fait confiance aux données — **vérifié, déjà mitigé** : `project_signals`
       est gardé par un `throw` explicite dans le workflow 09 avant écriture si
-      `boundary_audit_passed` n'est pas vrai. `qa_history` n'est écrit par AUCUN workflow
-      actuellement (F-14 pas encore branché côté écriture) — pas de risque de fuite tant que ça
-      reste le cas. À surveiller : si `qa_history` reçoit un jour un writer, lui ajouter le même
-      garde que 09. Aucun fix de code pour l'instant.
-- [x] F-08.3 non mitigé pour petites équipes — `08-memory-reader` masque maintenant
-      `active_blocker_developer_count` (sous forme `'none'`/`'some'`, commit `4510881`) ET
-      `feature_areas[].has_blocker` par zone nommée (retiré du tableau, commit `f419b7d`) quand
-      l'équipe active a moins de 3 développeurs, pour `purpose='tl_internal'`. **Découverte
-      importante en cours de route** : `08-memory-reader` n'est actuellement appelé par AUCUN
-      workflow (`04-client-report` construit son propre draft sans passer par lui ; `07` non plus
-      pour `dev_self`) — donc le risque réel aujourd'hui est nul, ce fix est du renforcement pour
-      quand ce workflow sera câblé (probablement F-14/P1). Deux points à garder en tête pour ce
-      jour-là : (1) l'audit F-08 réel (`02-aggregation-boundary.json`, différent malgré le nom
-      similaire) ne détecte que des noms/IDs du roster — un texte du style "Auth: bloqué" sans nom
-      ne serait PAS attrapé si `feature_areas` non masqué finissait dans un draft `report` ; (2)
-      `purpose='dev_self'` reçoit aussi `feature_areas` complet sans masquage — même risque
-      théorique, pas encore traité, pas bloquant tant que rien n'appelle ce workflow.
+      `boundary_audit_passed` n'est pas vrai. `qa_history` n'est toujours écrit par AUCUN workflow
+      (F-14 câblé côté lecture le 2026-07-05, pas encore côté écriture pour `qa_history`) — pas de
+      risque de fuite tant que ça reste le cas. À surveiller : si `qa_history` reçoit un jour un
+      writer, lui ajouter le même garde que 09.
+- [x] F-08.3 non mitigé pour petites équipes — `08-memory-reader` masque
+      `active_blocker_developer_count`/`active_blocker_area_count` (sous forme `'none'`/`'some'`,
+      commits `4510881`, `04503d6`) ET `feature_areas[].has_blocker` (retiré du tableau, commits
+      `f419b7d`, `04503d6`) quand l'équipe active a moins de 3 développeurs, pour
+      `purpose='tl_internal'`/`'dev_self'` — et de façon inconditionnelle (peu importe la taille
+      d'équipe) pour `purpose='report'` (Tier 1, le plus strict). **Ce risque est devenu réel le
+      2026-07-05** : `08-memory-reader` est maintenant câblé dans `03`/`04`/`05`/`07` (voir section
+      F-14 en haut du fichier) — le masquage ci-dessus n'est plus du renforcement préventif, c'est
+      ce qui empêche activement la fuite dans un contenu client/TL/dev réel. Risque résiduel
+      documenté et accepté dans la section F-14 : une zone à propriétaire unique reste
+      ré-identifiable pour `tl_internal`/`dev_self` sur une équipe de 3+ développeurs (le seuil ne
+      regarde que l'effectif total, pas les contributeurs par zone).
 - [x] `dm_channel_id` périmé dans `01b` — remplacé par `$('Classify Event').item.json.channel_id`
       (le channel de l'événement Discord entrant, garanti à jour par construction puisqu'on répond
       dans la même conversation) sur les ~10 nodes d'envoi + les 2 `queryReplacement` de création
@@ -242,6 +275,7 @@ Mettre à jour `.env` avec les IDs des workflows importés dans n8n, puis `docke
 - [ ] `F03_WORKFLOW_ID` — ID du workflow 01 dans n8n
 - [ ] `F08_WORKFLOW_ID` — ID du workflow 02 dans n8n
 - [ ] `F01_WORKFLOW_ID` — ID du workflow 04 dans n8n
+- [ ] `F14_WORKFLOW_ID` — ID du workflow 08 dans n8n (nouveau, requis par 03/04/05/07 depuis le câblage F-14 du 2026-07-05)
 - [ ] `DELIVERY_EXECUTOR_WORKFLOW_ID` — ID du workflow 01c dans n8n
 
 ### 3. Activer les workflows restants dans n8n
