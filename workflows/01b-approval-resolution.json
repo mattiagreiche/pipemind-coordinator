@@ -1,5 +1,5 @@
 {
-  "name": "01b — F-03: Approval Resolution Listener",
+  "name": "01b \u2014 F-03: Approval Resolution Listener",
   "nodes": [
     {
       "id": "discord-trigger",
@@ -28,7 +28,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '✅': 'approve', '✏️': 'edit', '❌': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text message event\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  const content = (d.content ?? '').trim();\n  const discord_id = d.author?.id;\n  const channel_id = d.channel_id;\n\n  // Thread-reply (edit flow) — must check before F-06 command detection\n  if (referenced_id) {\n    return [{ json: {\n      skip: false,\n      eventType: 'message',\n      action: 'edit_reply',\n      message_id: referenced_id,\n      reply_id: d.id,\n      actor_discord_id: discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  // F-06 fixed command detection — plain DM with no referenced message\n  const FIXED_COMMANDS = ['yes', 'no', 'colleague', 'meeting', 'just-talk'];\n  const lower = content.toLowerCase();\n\n  if (lower === 'yes') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_yes',\n      raw_action: 'unblock_yes',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'no') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_no',\n      raw_action: 'unblock_no',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'colleague') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_colleague',\n      raw_action: 'unblock_colleague',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'meeting') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_meeting',\n      raw_action: 'unblock_meeting',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'just-talk') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_just_talk',\n      raw_action: 'unblock_just_talk',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'cancel') {\n    return [{ json: { skip: true } }];\n  }\n\n  // Non-command plain text — may be a free-text reply for colleague_pending / meeting_pending\n  if (content.length > 0) {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_free_text',\n      action: 'unblock_free_text',\n      raw_action: 'unblock_free_text',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n}\n\nreturn [{ json: { skip: true } }];"
+        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '\u2705': 'approve', '\u270f\ufe0f': 'edit', '\u274c': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text message event\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  const content = (d.content ?? '').trim();\n  const discord_id = d.author?.id;\n  const channel_id = d.channel_id;\n\n  // Thread-reply (edit flow) \u2014 must check before F-06 command detection\n  if (referenced_id) {\n    return [{ json: {\n      skip: false,\n      eventType: 'message',\n      action: 'edit_reply',\n      message_id: referenced_id,\n      reply_id: d.id,\n      actor_discord_id: discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  // F-06 fixed command detection \u2014 plain DM with no referenced message\n  const FIXED_COMMANDS = ['yes', 'no', 'colleague', 'meeting', 'just-talk'];\n  const lower = content.toLowerCase();\n\n  if (lower === 'yes') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_yes',\n      raw_action: 'unblock_yes',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'no') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_no',\n      raw_action: 'unblock_no',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'colleague') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_colleague',\n      raw_action: 'unblock_colleague',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'meeting') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_meeting',\n      raw_action: 'unblock_meeting',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'just-talk') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_just_talk',\n      raw_action: 'unblock_just_talk',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'cancel') {\n    return [{ json: { skip: true } }];\n  }\n\n  // Non-command plain text \u2014 may be a free-text reply for colleague_pending / meeting_pending\n  if (content.length > 0) {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_free_text',\n      action: 'unblock_free_text',\n      raw_action: 'unblock_free_text',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n}\n\nreturn [{ json: { skip: true } }];"
       }
     },
     {
@@ -266,7 +266,7 @@
       ],
       "parameters": {
         "options": {
-          "workflowName": "01c — F-03: Delivery Executor (Sub-Workflow)"
+          "workflowName": "01c \u2014 F-03: Delivery Executor (Sub-Workflow)"
         },
         "mode": "each",
         "workflowInputs": {
@@ -361,7 +361,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "body": "={{ JSON.stringify({ content: String('✏️ **Edit mode** — reply to this message with your edited version.\\nYour reply replaces the draft. React ✅ on the reply to confirm.\\n`Draft ID: ' + $('Lookup Draft').item.json.draft_id + '`').slice(0,2000) }) }}"
+        "body": "={{ JSON.stringify({ content: String('\u270f\ufe0f **Edit mode** \u2014 reply to this message with your edited version.\\nYour reply replaces the draft. React \u2705 on the reply to confirm.\\n`Draft ID: ' + $('Lookup Draft').item.json.draft_id + '`').slice(0,2000) }) }}"
       }
     },
     {
@@ -374,7 +374,7 @@
         650
       ],
       "parameters": {
-        "jsCode": "const evt = $('Classify Event').item.json;\nconst draft = $('Lookup Draft').item.json;\n\n// Block edit path for colleague_dm — approver is requester, edit would allow social-engineering text\nif (draft.content_type === 'colleague_dm') {\n  return [{ json: { skip: true } }];\n}\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content — strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, reply_message_id: evt.reply_id, draft_id: draft.draft_id } }];"
+        "jsCode": "const evt = $('Classify Event').item.json;\nconst draft = $('Lookup Draft').item.json;\n\n// Block edit path for colleague_dm \u2014 approver is requester, edit would allow social-engineering text\nif (draft.content_type === 'colleague_dm') {\n  return [{ json: { skip: true } }];\n}\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content \u2014 strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, reply_message_id: evt.reply_id, draft_id: draft.draft_id } }];"
       }
     },
     {
@@ -458,7 +458,7 @@
         600
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nif (!(($input.all().length > 0 && $input.first().json.discord_id !== null) === true)) return [];\nreturn $input.all();"
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $('Classify Event').all();"
       }
     },
     {
@@ -668,7 +668,7 @@
         "sendBody": true,
         "contentType": "json",
         "body": {
-          "content": "[Pipemind] Great — how would you like to proceed?\n\nReply with one of:\n• colleague — loop in a teammate who might be able to help\n• meeting — schedule a short focus or pairing session\n• just-talk — I will note that you accepted help; no further action needed"
+          "content": "[Pipemind] Great \u2014 how would you like to proceed?\n\nReply with one of:\n\u2022 colleague \u2014 loop in a teammate who might be able to help\n\u2022 meeting \u2014 schedule a short focus or pairing session\n\u2022 just-talk \u2014 I will note that you accepted help; no further action needed"
         }
       }
     },
@@ -1417,7 +1417,7 @@
         "sendBody": true,
         "contentType": "json",
         "body": {
-          "content": "={{ '[Pipemind] Draft: A teammate could use a hand with ' + $('Lookup Offer for Free Text').item.json.feature_area + '. Are you available to connect with them today?\\n\\nReply ✅ to send, ❌ to cancel.' }}"
+          "content": "={{ '[Pipemind] Draft: A teammate could use a hand with ' + $('Lookup Offer for Free Text').item.json.feature_area + '. Are you available to connect with them today?\\n\\nReply \u2705 to send, \u274c to cancel.' }}"
         }
       }
     },
@@ -1455,7 +1455,7 @@
         1200
       ],
       "parameters": {
-        "jsCode": "const content = $('Classify Event').item.json.content ?? '';\nconst offerRow = $('Lookup Offer for Free Text').item.json;\n\n// Match pattern: HH:MM-HH:MM (today|tomorrow)?\nconst match = content.match(/^(\\d{1,2}):(\\d{2})\\s*[-–]\\s*(\\d{1,2}):(\\d{2})(?:\\s+(today|tomorrow))?/i);\n\nif (!match) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nconst [, startH, startM, endH, endM, dayWord] = match;\nconst now = new Date();\nconst base = new Date(now.getFullYear(), now.getMonth(), now.getDate());\n\nif (dayWord && dayWord.toLowerCase() === 'tomorrow') {\n  base.setDate(base.getDate() + 1);\n}\n\nconst start = new Date(base);\nstart.setHours(parseInt(startH, 10), parseInt(startM, 10), 0, 0);\n\nconst end = new Date(base);\nend.setHours(parseInt(endH, 10), parseInt(endM, 10), 0, 0);\n\nif (end <= start) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nreturn [{ json: {\n  parse_ok: true,\n  start_iso: start.toISOString(),\n  end_iso: end.toISOString(),\n  start_label: startH.padStart(2,'0') + ':' + startM,\n  end_label: endH.padStart(2,'0') + ':' + endM,\n  dm_channel_id: offerRow.dm_channel_id,\n  offer_id: offerRow.offer_id,\n  feature_area: offerRow.feature_area,\n  requester_calendar_email: offerRow.requester_calendar_email ?? ''\n}}];"
+        "jsCode": "const content = $('Classify Event').item.json.content ?? '';\nconst offerRow = $('Lookup Offer for Free Text').item.json;\n\n// Match pattern: HH:MM-HH:MM (today|tomorrow)?\nconst match = content.match(/^(\\d{1,2}):(\\d{2})\\s*[-\u2013]\\s*(\\d{1,2}):(\\d{2})(?:\\s+(today|tomorrow))?/i);\n\nif (!match) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nconst [, startH, startM, endH, endM, dayWord] = match;\nconst now = new Date();\nconst base = new Date(now.getFullYear(), now.getMonth(), now.getDate());\n\nif (dayWord && dayWord.toLowerCase() === 'tomorrow') {\n  base.setDate(base.getDate() + 1);\n}\n\nconst start = new Date(base);\nstart.setHours(parseInt(startH, 10), parseInt(startM, 10), 0, 0);\n\nconst end = new Date(base);\nend.setHours(parseInt(endH, 10), parseInt(endM, 10), 0, 0);\n\nif (end <= start) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nreturn [{ json: {\n  parse_ok: true,\n  start_iso: start.toISOString(),\n  end_iso: end.toISOString(),\n  start_label: startH.padStart(2,'0') + ':' + startM,\n  end_label: endH.padStart(2,'0') + ':' + endM,\n  dm_channel_id: offerRow.dm_channel_id,\n  offer_id: offerRow.offer_id,\n  feature_area: offerRow.feature_area,\n  requester_calendar_email: offerRow.requester_calendar_email ?? ''\n}}];"
       }
     },
     {
@@ -1507,7 +1507,7 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO pipemind.approval_drafts\n  (approver_discord_id, discord_channel_id, feature_tag, content_type, draft_text, context_json, expires_at, boundary_audit_passed)\nVALUES\n  ($1, $2, 'F-06', 'calendar_event',\n   '[Pipemind] Calendar block: Focus session for ' || $3 || ' — ' || $4 || ' to ' || $5 || '.',\n   jsonb_build_object('start_iso', $6, 'end_iso', $7, 'feature_area', $3, 'calendar_email', $8, 'offer_id', $9::text),\n   now() + INTERVAL '48 hours',\n   TRUE)\nRETURNING draft_id;",
+        "query": "INSERT INTO pipemind.approval_drafts\n  (approver_discord_id, discord_channel_id, feature_tag, content_type, draft_text, context_json, expires_at, boundary_audit_passed)\nVALUES\n  ($1, $2, 'F-06', 'calendar_event',\n   '[Pipemind] Calendar block: Focus session for ' || $3 || ' \u2014 ' || $4 || ' to ' || $5 || '.',\n   jsonb_build_object('start_iso', $6, 'end_iso', $7, 'feature_area', $3, 'calendar_email', $8, 'offer_id', $9::text),\n   now() + INTERVAL '48 hours',\n   TRUE)\nRETURNING draft_id;",
         "options": {
           "queryReplacement": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $('Classify Event').item.json.channel_id,\n  $json.feature_area,\n  $json.start_label,\n  $json.end_label,\n  $json.start_iso,\n  $json.end_iso,\n  $json.requester_calendar_email,\n  $json.offer_id\n] }}"
         }
@@ -1542,7 +1542,7 @@
         "sendBody": true,
         "contentType": "json",
         "body": {
-          "content": "={{ '[Pipemind] Calendar block: Focus session for ' + $('Parse Meeting Time').item.json.feature_area + ' — ' + $('Parse Meeting Time').item.json.start_label + ' to ' + $('Parse Meeting Time').item.json.end_label + '.\\n\\nReply ✅ to create the calendar block, ❌ to cancel.' }}"
+          "content": "={{ '[Pipemind] Calendar block: Focus session for ' + $('Parse Meeting Time').item.json.feature_area + ' \u2014 ' + $('Parse Meeting Time').item.json.start_label + ' to ' + $('Parse Meeting Time').item.json.end_label + '.\\n\\nReply \u2705 to create the calendar block, \u274c to cancel.' }}"
         }
       }
     },
