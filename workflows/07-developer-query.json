@@ -86,6 +86,7 @@
         1500,
         600
       ],
+      "continueOnFail": true,
       "parameters": {
         "method": "GET",
         "url": "={{ 'https://api.github.com/repos/' + $env.GITHUB_OWNER + '/' + $env.GITHUB_REPO + '/pulls?state=all&sort=updated&direction=desc&per_page=30' }}",
@@ -131,6 +132,7 @@
         2000,
         600
       ],
+      "continueOnFail": true,
       "parameters": {
         "method": "GET",
         "url": "={{ $env.JIRA_BASE_URL + '/rest/api/3/search?jql=project%3D' + $env.JIRA_PROJECT_KEY + '%20ORDER%20BY%20updated%20DESC&maxResults=30&fields=status,labels,components,priority,-summary,-description,-assignee,-reporter,-creator' }}",
@@ -711,7 +713,7 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT query_id, client_question, client_channel_id, feature_area\nFROM pipemind.teammate_queries\nWHERE asked_discord_id = $1 AND status = 'pending' AND deadline_at > now()\nORDER BY asked_at DESC\nLIMIT 1;",
+        "query": "SELECT tq.query_id, tq.client_question, tq.client_channel_id, tq.feature_area, (tq.query_id IS NOT NULL) AS found\nFROM (SELECT 1 AS x) AS d\nLEFT JOIN LATERAL (\n  SELECT query_id, client_question, client_channel_id, feature_area\n  FROM pipemind.teammate_queries\n  WHERE asked_discord_id = $1 AND status = 'pending' AND deadline_at > now()\n  ORDER BY asked_at DESC\n  LIMIT 1\n) AS tq ON true;",
         "options": {
           "queryReplacement": "={{ [ $('Verify Developer').item.json.author_id ] }}"
         }
@@ -727,7 +729,7 @@
         650
       ],
       "parameters": {
-        "jsCode": "if ($input.all().length === 0) return [];\nreturn $input.all();"
+        "jsCode": "if (!$input.first().json.found) return [];\nreturn $input.all();"
       }
     },
     {
@@ -740,7 +742,7 @@
         450
       ],
       "parameters": {
-        "jsCode": "if ($input.all().length > 0) return [];\nreturn $('Route Message Type (query)').all();"
+        "jsCode": "if ($input.first().json.found) return [];\nreturn $input.all();"
       }
     },
     {
@@ -760,7 +762,7 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE pipemind.teammate_queries\nSET status = 'answered', reply_text = $2, responded_at = now()\nWHERE query_id = $1::uuid AND status = 'pending' AND deadline_at > now()\nRETURNING query_id, client_question, client_channel_id, feature_area;",
+        "query": "WITH upd AS (\n  UPDATE pipemind.teammate_queries\n  SET status = 'answered', reply_text = $2, responded_at = now()\n  WHERE query_id = $1::uuid AND status = 'pending' AND deadline_at > now()\n  RETURNING query_id, client_question, client_channel_id, feature_area\n)\nSELECT u.query_id, u.client_question, u.client_channel_id, u.feature_area,\n       (u.query_id IS NOT NULL) AS found\nFROM (SELECT 1 AS x) AS d\nLEFT JOIN upd u ON true;",
         "options": {
           "queryReplacement": "={{ [ $('Fetch Pending Teammate Query').item.json.query_id, $('Verify Developer').item.json.content ] }}"
         }
@@ -776,7 +778,7 @@
         600
       ],
       "parameters": {
-        "jsCode": "if ($input.all().length === 0) return [];\nreturn $input.all();"
+        "jsCode": "if (!$input.first().json.found) return [];\nreturn $input.all();"
       }
     },
     {
@@ -789,7 +791,7 @@
         750
       ],
       "parameters": {
-        "jsCode": "if ($input.all().length > 0) return [];\nreturn $('Has Pending Teammate Query? (yes)').all();"
+        "jsCode": "if ($input.first().json.found) return [];\nreturn $input.all();"
       }
     },
     {
