@@ -458,7 +458,7 @@
         600
       ],
       "parameters": {
-        "jsCode": "if ($input.all().length > 0) return [];\nreturn $('Classify Event').all();"
+        "jsCode": "if ($input.all().length > 0) return $('Classify Event').all();\nreturn [];"
       }
     },
     {
