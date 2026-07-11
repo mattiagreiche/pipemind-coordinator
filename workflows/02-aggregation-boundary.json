@@ -69,14 +69,16 @@
       ],
       "parameters": {
         "mode": "manual",
-        "fields": {
-          "values": [
+        "assignments": {
+          "assignments": [
             {
+              "id": "8a283fcc",
               "name": "draft_text",
               "value": "={{ $('Pattern Audit').item.json.draft_text }}",
               "type": "string"
             },
             {
+              "id": "bbc2030c",
               "name": "boundary_audit_passed",
               "value": true,
               "type": "boolean"
@@ -149,14 +151,16 @@
       ],
       "parameters": {
         "mode": "manual",
-        "fields": {
-          "values": [
+        "assignments": {
+          "assignments": [
             {
+              "id": "5e2fec27",
               "name": "draft_text",
               "value": "={{ $json.draft_text }}",
               "type": "string"
             },
             {
+              "id": "0d64b3d8",
               "name": "boundary_audit_passed",
               "value": true,
               "type": "boolean"
@@ -179,55 +183,53 @@
       }
     },
     {
-      "id": "if-clean-true",
-      "name": "Boundary Clean? (yes)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "boundary-if",
+      "name": "Boundary Clean?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
         1000,
         300
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nif (!((j.clean) === true)) return [];\nreturn $input.all();"
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ String($json.clean) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "caseSensitive": true
+              }
+            }
+          ]
+        }
       }
     },
     {
-      "id": "if-clean-false",
-      "name": "Boundary Clean? (no)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1000,
-        450
-      ],
-      "parameters": {
-        "jsCode": "const j = $input.first().json;\nif ((j.clean) === true) return [];\nreturn $input.all();"
-      }
-    },
-    {
-      "id": "if-rewrite-clean-true",
-      "name": "Rewrite Clean? (yes)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "rewrite-if",
+      "name": "Rewrite Clean?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
         2000,
         500
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nif (!((j.clean) === true)) return [];\nreturn $input.all();"
-      }
-    },
-    {
-      "id": "if-rewrite-clean-false",
-      "name": "Rewrite Clean? (no)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2000,
-        650
-      ],
-      "parameters": {
-        "jsCode": "const j = $input.first().json;\nif ((j.clean) === true) return [];\nreturn $input.all();"
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ String($json.clean) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "caseSensitive": true
+              }
+            }
+          ]
+        }
       }
     }
   ],
@@ -269,12 +271,7 @@
       "main": [
         [
           {
-            "node": "Boundary Clean? (yes)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Boundary Clean? (no)",
+            "node": "Boundary Clean?",
             "type": "main",
             "index": 0
           }
@@ -307,19 +304,14 @@
       "main": [
         [
           {
-            "node": "Rewrite Clean? (yes)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Rewrite Clean? (no)",
+            "node": "Rewrite Clean?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Boundary Clean? (yes)": {
+    "Boundary Clean?": {
       "main": [
         [
           {
@@ -327,11 +319,7 @@
             "type": "main",
             "index": 0
           }
-        ]
-      ]
-    },
-    "Boundary Clean? (no)": {
-      "main": [
+        ],
         [
           {
             "node": "Build Ollama Request",
@@ -341,7 +329,7 @@
         ]
       ]
     },
-    "Rewrite Clean? (yes)": {
+    "Rewrite Clean?": {
       "main": [
         [
           {
@@ -349,11 +337,7 @@
             "type": "main",
             "index": 0
           }
-        ]
-      ]
-    },
-    "Rewrite Clean? (no)": {
-      "main": [
+        ],
         [
           {
             "node": "Error — Boundary Unresolvable",
