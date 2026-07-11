@@ -190,8 +190,12 @@
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "googleCalendarOAuth2Api",
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Aggregate & Guard Empty').first().json.developers.filter(d => d.calendar_email).slice(0, 50).map(d => ({ id: d.calendar_email })) }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Aggregate & Guard Empty').first().json.developers.filter(d => d.calendar_email).slice(0, 50).map(d => ({ id: d.calendar_email })) }) }}",
+        "rawContentType": "application/json",
+        "headerParameters": {
+          "parameters": []
+        }
       }
     },
     {
@@ -296,16 +300,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] Time-log offer skipped today: both Clockify and Google Calendar were unavailable. No developers were contacted (SC-18 fail-safe). Please verify the integrations are running.' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Time-log offer skipped today: both Clockify and Google Calendar were unavailable. No developers were contacted (SC-18 fail-safe). Please verify the integrations are running.' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -461,16 +462,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ recipient_id: $json.discord_id }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ recipient_id: $json.discord_id }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -492,16 +490,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: $('Build Draft or Route').item.json.info_message }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: $('Build Draft or Route').item.json.info_message }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -546,16 +541,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ recipient_id: $json.discord_id }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ recipient_id: $json.discord_id }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -601,16 +593,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: $('Build Draft or Route').item.json.draft_text }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: $('Build Draft or Route').item.json.draft_text }) }}",
+        "rawContentType": "application/json"
       }
     },
     {

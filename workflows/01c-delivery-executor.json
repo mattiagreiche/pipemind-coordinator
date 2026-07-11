@@ -394,16 +394,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: String($('Fetch Approved Draft').item.json.final_text).slice(0,2000) }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: String($('Fetch Approved Draft').item.json.final_text).slice(0,2000) }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -485,16 +482,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: String($('Fetch Approved Draft').item.json.final_text).slice(0,2000) }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: String($('Fetch Approved Draft').item.json.final_text).slice(0,2000) }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -622,16 +616,13 @@
             {
               "name": "X-Api-Key",
               "value": "={{ $env.CLOCKIFY_API_KEY }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ start: $json.start_iso, end: $json.end_iso, description: $json.description }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ start: $json.start_iso, end: $json.end_iso, description: $json.description }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -677,16 +668,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time log was approved but Clockify returned an error when we tried to write the entry. Please log your time manually in Clockify for today. The team lead has been notified.' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time log was approved but Clockify returned an error when we tried to write the entry. Please log your time manually in Clockify for today. The team lead has been notified.' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -708,16 +696,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time entry has been logged in Clockify: ' + $('Parse Time Entry').item.json.final_hours + 'h on ' + $('Parse Time Entry').item.json.feature_area + '. All done for today!' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time entry has been logged in Clockify: ' + $('Parse Time Entry').item.json.final_hours + 'h on ' + $('Parse Time Entry').item.json.feature_area + '. All done for today!' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -801,8 +786,9 @@
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ recipient_id: $('Fetch Approved Draft').item.json.context_json.colleague_discord_id }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ recipient_id: $('Fetch Approved Draft').item.json.context_json.colleague_discord_id }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -828,8 +814,9 @@
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: $('Fetch Approved Draft').item.json.final_text }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: $('Fetch Approved Draft').item.json.final_text }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -879,8 +866,9 @@
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] I was unable to reach your teammate. You may want to contact them directly.' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] I was unable to reach your teammate. You may want to contact them directly.' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -986,8 +974,12 @@
           "name": "Pipemind Google Calendar"
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ summary: 'Focus session — ' + $json.feature_area, start: { dateTime: $json.start_iso }, end: { dateTime: $json.end_iso } }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ summary: 'Focus session — ' + $json.feature_area, start: { dateTime: $json.start_iso }, end: { dateTime: $json.end_iso } }) }}",
+        "rawContentType": "application/json",
+        "headerParameters": {
+          "parameters": []
+        }
       }
     },
     {
@@ -1037,8 +1029,9 @@
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] Done — your calendar block has been created for ' + $('Parse Calendar Context').item.json.feature_area + '.' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Done — your calendar block has been created for ' + $('Parse Calendar Context').item.json.feature_area + '.' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -1064,8 +1057,9 @@
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] I was unable to create the calendar block. Please create it manually in Google Calendar.' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] I was unable to create the calendar block. Please create it manually in Google Calendar.' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -1139,8 +1133,9 @@
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] No calendar linked for your account — please create the block manually in Google Calendar.' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] No calendar linked for your account — please create the block manually in Google Calendar.' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -1209,16 +1204,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved report failed to save to Google Drive. Please check the Drive folder and retry manually if needed.\" }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved report failed to save to Google Drive. Please check the Drive folder and retry manually if needed.\" }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -1287,16 +1279,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved report failed to send via Gmail. Please check and retry manually if needed.\" }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved report failed to send via Gmail. Please check and retry manually if needed.\" }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -1365,16 +1354,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved Q&A reply failed to post in the client channel. Please check and resend manually if needed.\" }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved Q&A reply failed to post in the client channel. Please check and resend manually if needed.\" }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -1443,16 +1429,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved welcome message failed to post in the client channel. Please check and resend manually if needed.\" }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] The approved welcome message failed to post in the client channel. Please check and resend manually if needed.\" }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
