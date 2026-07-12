@@ -93,25 +93,14 @@
     {
       "id": "if-report-request",
       "name": "Report Request?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1750,
         200
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.intent }}",
-              "rightValue": "report_request",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (j.intent !== 'report_request') return [];\nreturn $input.all();"
       }
     },
     {
@@ -181,25 +170,14 @@
     {
       "id": "if-status-question",
       "name": "Status Question?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2000,
         350
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.intent }}",
-              "rightValue": "status_question",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (j.intent !== 'status_question') return [];\nreturn $input.all();"
       }
     },
     {
@@ -487,25 +465,27 @@
     {
       "id": "if-explain-request",
       "name": "Explain Request?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1750,
         50
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.intent }}",
-              "rightValue": "explain_request",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (j.intent !== 'explain_request') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-no-recognized-intent",
+      "name": "No Recognized Intent?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        550
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst handled = ['explain_request', 'report_request', 'status_question'];\nif (handled.includes(j.intent)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -639,6 +619,21 @@
             "node": "Explain Request?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Report Request?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Status Question?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "No Recognized Intent?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -651,10 +646,14 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "No Recognized Intent?": {
+      "main": [
         [
           {
-            "node": "Report Request?",
+            "node": "Post Help Message",
             "type": "main",
             "index": 0
           }
@@ -688,13 +687,6 @@
         [
           {
             "node": "Ack Report Request",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Status Question?",
             "type": "main",
             "index": 0
           }
@@ -733,13 +725,6 @@
           },
           {
             "node": "Named Individual? (no)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Post Help Message",
             "type": "main",
             "index": 0
           }
