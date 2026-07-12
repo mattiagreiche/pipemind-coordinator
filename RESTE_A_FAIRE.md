@@ -1,8 +1,9 @@
 # Pipemind Coordinator — État du projet
 
-*Mis à jour le 2026-07-05 — audit sécurité global post-merge (branche `main`) entièrement clos,
-puis câblage de F-14 (Persistent Memory) dans les workflows consommateurs. Cette section reflète
-l'état réel vérifié par l'agent de sécurité, pas l'état espéré.*
+*Mis à jour le 2026-07-11 — premier test end-to-end réel du projet (00/03/04 validés, premier
+draft client généré), 2 blocages restants (réactions Discord, audit IF natifs 01/01b/01c). Section
+2026-07-05 (audit sécurité + F-14) conservée ci-dessous, toujours vraie. Cette section reflète
+l'état réel vérifié, pas l'état espéré.*
 
 ## F-14 (Persistent Memory) câblé — 2026-07-05
 
@@ -150,13 +151,21 @@ répété :
 Résultat : code plus solide qu'avant l'audit, mais toujours **zéro test end-to-end réel** — voir
 "État global" ci-dessous pour ce que ça veut dire concrètement.
 
-## Prochaine session — reprendre ici
+## Prochaine session — reprendre ici (mis à jour 2026-07-11)
 
-Tous les CRIT (2), HIGH (5), MEDIUM (8, + 1 trouvé en cours de route) et LOW (3) de l'audit du
-2026-07-04/05 sont réglés (ou vérifiés faux positifs), et F-14 (Persistent Memory) est maintenant
-câblé dans 03/04/05/07 (voir section dédiée plus haut). Le vrai blocage pour tester en prod reste
-les **credentials manquants** (GitHub et Google faits, Jira à confirmer) et les **IDs de workflow
-à mettre à jour dans `.env`** (dont le nouveau `F14_WORKFLOW_ID`) — voir sections 1 et 2 plus bas.
+Premier vrai test end-to-end du projet fait le 2026-07-11 (zéro test avant cette date). Résultat :
+`00`/`03`/`04` fonctionnent, premier draft client généré avec succès. Deux blocages restent :
+
+1. **Priorité #1 — les réactions Discord (✅/❌/✏️) ne remontent pas jusqu'à `01b`.** Piste
+   trouvée en fin de session : Justin et son collègue partagent le même token de bot Discord sur
+   deux instances locales séparées — probablement la vraie cause (pas un bug de workflow). À
+   vérifier en premier : couper un des deux `discord-forwarder` et retester.
+2. **Priorité #2 — auditer les nodes IF natifs restants dans `01`/`01b`/`01c`** (voir note
+   technique en bas de fichier) — le bug de comparateur n8n 1.91.3 touche plus de types que prévu,
+   et ce chemin (approval gate + delivery) n'a jamais été vérifié pour ce pattern.
+
+Voir section "4. Tests end-to-end" et "5. Bugs trouvés le 2026-07-11" plus bas pour le détail
+complet. Credentials manquants (Clockify, GitHub, Jira) et sections 1-3 aussi mis à jour.
 
 ## Ce qui est fait
 
@@ -324,58 +333,105 @@ idempotence propre en 06, sanitisation anti-injection en 09, SC-06a bien fait da
 ### 1. Credentials manquants — priorité haute
 Sans ces credentials, les workflows s'arrêtent à mi-chemin.
 
-- [ ] **GitHub** : `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO` dans `.env`
-- [ ] **Jira** : `JIRA_BASE_URL`, `JIRA_TOKEN`, `JIRA_AUTH`, `JIRA_PROJECT_KEY` dans `.env`
+- [ ] **GitHub** : `GITHUB_OWNER`/`GITHUB_REPO` toujours vides au 2026-07-11 (confirmé — dégrade
+      proprement depuis les fixs `continueOnFail` du 2026-07-11, mais aucun signal réel)
+- [ ] **Jira** : toujours vide au 2026-07-11 (dégrade proprement, aucun signal réel)
+- [ ] **Clockify** : `CLOCKIFY_WORKSPACE_ID` toujours vide au 2026-07-11 — **bloque visiblement**
+      (par design) les workflows `10`, `11`, `12`, `01b`, `01c`
 - [x] **Ollama** : modèle `llama3.2` téléchargé
 - [ ] **Google OAuth** (workflow 09 — standup ingestion)
   - App Google OAuth en mode "test" → ajouter les emails dans Audience
   - Se connecter dans n8n → Credentials → Google Docs OAuth2
 
 ### 2. Variables d'environnement post-import
-Mettre à jour `.env` avec les IDs des workflows importés dans n8n, puis `docker compose restart n8n` :
-- [ ] `F03_WORKFLOW_ID` — ID du workflow 01 dans n8n
-- [ ] `F08_WORKFLOW_ID` — ID du workflow 02 dans n8n
-- [ ] `F01_WORKFLOW_ID` — ID du workflow 04 dans n8n
-- [ ] `F14_WORKFLOW_ID` — ID du workflow 08 dans n8n (nouveau, requis par 03/04/05/07 depuis le câblage F-14 du 2026-07-05)
-- [ ] `DELIVERY_EXECUTOR_WORKFLOW_ID` — ID du workflow 01c dans n8n
+- [x] `F03_WORKFLOW_ID`, `F08_WORKFLOW_ID`, `F01_WORKFLOW_ID`, `F14_WORKFLOW_ID`,
+      `DELIVERY_EXECUTOR_WORKFLOW_ID` — corrigés le 2026-07-11 (pointaient vers des IDs obsolètes
+      qui n'existaient plus du tout, jamais réglés depuis le 2026-06-30 malgré la note "à
+      reconfigurer"). Valeurs actuelles : voir `.env`, workflow IDs alignés avec les fichiers du
+      repo depuis le réimport complet du 2026-07-11.
 
 ### 3. Activer les workflows restants dans n8n
-- [ ] Workflow 01b — Approval Resolution (doit être actif pour recevoir les réactions ✅/❌ dans Discord ;
-      attendre la fin des corrections CRIT ci-dessus avant d'activer en prod)
-- [ ] Workflow 04 — Client Report (schedule trigger vendredi 17h)
-- [ ] Workflows 08, 09, 10, 11, 12 — P1 features (standup, check-ins, time-log)
+- [x] Workflow 00, 03, 05, 07, 01b — actifs depuis le 2026-07-11
+- [ ] Workflow 04 — Client Report — **volontairement inactif** (son Schedule Trigger vendredi
+      n'est pas encore voulu en prod) ; reste appelable via `03` ("generate the weekly report")
+      qui l'invoque en sous-workflow sans dépendre de son statut actif
+- [ ] Workflows 06, 08, 09, 10, 11, 12, 13 — sous-workflows/features non encore testées (08 n'a
+      pas besoin d'être actif, invoqué via Execute Workflow)
 
-### 4. Tests end-to-end (une fois credentials configurés ET findings CRIT/HIGH corrigés)
-- [ ] **Client Q&A** : message dans `#client` → draft dans `#tl-approvals` → réagir ✅ → réponse envoyée dans `#client`
-- [ ] **Client Welcome** : nouveau membre rejoint le serveur → draft de bienvenue → approbation → message envoyé
-- [ ] **Developer Query** : DM au bot → réponse directe dans le DM
-- [ ] **TL Interaction** : message dans `#tl-approvals` → intent classifié → action exécutée
-- [ ] **Client Report** : déclencher workflow 04 manuellement → draft rapport → approbation → envoi Gmail + Drive
-- [ ] **Unblock Assistance (F-06)** : DM "yes" à une offre de check-in → flux colleague/meeting/just-talk → vérifier
-      que la réaction/réponse ultérieure matche bien le bon draft (dépend du fix du finding HIGH ci-dessus)
+### 4. Tests end-to-end — premiers vrais tests le 2026-07-11 (zéro test avant cette date)
+- [x] **TL Interaction (03)** : message dans `#tl-approvals` → intent classifié → réponse — validé
+- [x] **Client Report (04)** : "generate the weekly report" dans `#tl-approvals` → `03`→`04`→
+      `08`(F-14)→`01`(Approval Gate)→`02`(Aggregation Boundary)→draft posté dans `#tl-approvals`.
+      **Premier draft de l'historique du projet** (`draft_id 443fac91-857b-48fc-a297-5740deddb97b`),
+      contenu vérifié safe (aucune attribution individuelle, honnête sur l'absence de données).
+- [ ] **Approbation d'un draft (réactions ✅/✏️/❌)** — **BLOQUÉ**, cause probable identifiée :
+      Justin et son collègue font chacun tourner leur propre instance locale mais partagent le
+      **même token de bot Discord** — deux connexions Gateway simultanées avec un seul token est
+      une cause connue de livraison d'événements incohérente (une session peut "voler" des
+      événements sans erreur visible). Les messages texte fonctionnaient parfaitement ce soir ;
+      seules les réactions ne remontaient jamais jusqu'à `01b` (webhook bien enregistré côté n8n,
+      confirmé). **Probablement pas un bug de code — à vérifier en premier la prochaine session**
+      en isolant un seul `discord-forwarder` actif à la fois. Si confirmé, la vraie solution est un
+      bot Discord distinct par développeur pour le dev local, pas un fix de workflow.
+- [ ] **Client Q&A (05)** : bloqué par le bug pairedItem jusqu'au 2026-07-11 (corrigé, commit
+      `3dd8e11`) — pas encore retesté après le fix
+- [ ] **Client Welcome (06)** : même fix pairedItem appliqué le 2026-07-11 — pas encore testé
+- [ ] **Developer Query (07)** : même fix — pas encore testé
+- [ ] **Unblock Assistance (F-06)** : DM "yes" à une offre de check-in → flux colleague/meeting/just-talk
+- [ ] Le chemin ✅ approve complet (jusqu'à un vrai envoi Gmail/Drive) — dépend du fix des réactions
+
+### 5. Bugs trouvés le 2026-07-11 (premier vrai test end-to-end), tous documentés en détail plus haut
+- [x] Chaîne `pairedItem` cassée (`.item` sans `pairedItem` en amont) dans `03`/`05`/`06`/`07` —
+      corrigée (commits `59bea5d`, `3dd8e11`)
+- [x] IF natifs avec comparateur string/number non fiable dans `03`/`04` — corrigés (`f1433d2`)
+- [x] `Strip GitHub Fields` retournait un tableau comme valeur de `json` (viole la contrainte n8n
+      "json doit être un objet") dans `04`/`05`/`07` — corrigé, en partie via les commits parallèles
+      du collègue (`f1433d2`)
+- [x] Chaîne de requêtes Postgres 0-row dans `08-memory-reader` (même classe de bug que le fix du
+      collègue du 2026-07-09 dans `07`, mais jamais appliqué à `08`) — corrigé par le collègue via
+      `alwaysOutputData: true` (commit `b24f13c`)
+- [ ] **Non corrigé, notez pour plus tard** : incohérence de langue des messages (mélange
+      français/anglais dans le texte codé en dur, et le contenu généré par Ollama sort en anglais
+      faute de langue cible spécifiée dans le system prompt)
+- [ ] **Non corrigé, notez pour plus tard** : le même pattern IF natif à auditer dans `01`/`01b`/`01c`
+      (voir note technique plus bas) — `01b` seul a ~65 occurrences de `.item.json` non vérifiées
+- [ ] **Ne PAS appliquer le fix pairedItem mécaniquement à `10`/`11`/`12`** — ces 3 fichiers ont de
+      vrais nodes de fan-out (`Split Into ... Items`, un par développeur) où `.first()` renverrait
+      toujours les données de la même personne au lieu de la bonne — risque réel de mélanger les
+      données entre développeurs, pas juste un crash (trouvé par l'agent sécurité en review)
 
 ---
 
-## Note technique — Bug IF/Switch nodes n8n 1.91.3 — RÉSOLU (2026-07-04)
+## Note technique — Bug IF/Switch nodes n8n 1.91.3 — PLUS LARGE QUE DOCUMENTÉ (mis à jour 2026-07-11)
 
-Les IF/Switch nodes avec comparateur `{type:"boolean", operation:"equals"}` (`=== true`/`=== false`)
-se comportaient de façon imprévisible dans cette version. **Corrigé partout** (commit `b365c1b`) :
-26 nodes convertis (25 IF + 1 Switch `Route Message Type` dans 07) au pattern suivant :
+**Correction importante** : cette section affirmait le bug "résolu" en ne couvrant que les
+comparateurs `{type:"boolean"}`. Le 2026-07-11, premier vrai test end-to-end du projet (zéro test
+avant cette date), on a trouvé le **même bug de comparateur sur des types STRING et NUMBER** dans
+des nodes IF natifs ajoutés *après* le passage du 2026-07-04 (donc jamais convertis) :
+- `03-tl-interaction.json` : `Explain Request?`/`Report Request?`/`Status Question?` (comparaison
+  string sur `$json.intent`) — un message classé `report_request` prenait quand même la branche
+  `explain_request`. Corrigé (restructuré en 4 gates Code node parallèles, alimentées directement
+  par `Classify Intent`) — commit inclus dans `f1433d2`.
+- `04-client-report.json` : `Already Drafted This Week?` (comparaison number `pending_count > 0`)
+  — même symptôme. Corrigé (paire Code node yes/no) — commit `f1433d2`.
 
+**Conclusion révisée : tout node `n8n-nodes-base.if`/`n8n-nodes-base.switch` restant dans le
+projet est suspect, peu importe le type de comparaison (booléen, string, ou nombre).** Le grep
+`"type": "boolean"` ne suffit pas à les trouver tous — chercher plutôt :
+```
+grep -c '"type": "n8n-nodes-base.if"\|"type": "n8n-nodes-base.switch"' workflows/*.json
+```
+**Pas encore audité (session dédiée nécessaire)** : `01-approval-gate.json`, `01b-approval-resolution.json`,
+`01c-delivery-executor.json` ont un volume important de code non vérifié pour ce pattern — priorité
+haute car c'est le chemin le plus critique (approval gate + delivery). Les fichiers `00`, `02`,
+`08`, `09`, `10`, `11`, `12`, `13` n'ont pas non plus été audités mais sont moins prioritaires.
+
+Pattern de fix établi (Code node unique, remplace un IF/Switch à une seule branche utile) :
 ```javascript
-// Dans un Code node — à la place d'un IF/Switch node
 if (conditionPourStopper) return [];  // arrête l'exécution silencieusement
 return $input.all();                  // continue
 ```
-
-Quand un seul côté de la branche menait à une action réelle (l'autre à un dead-end/NoOp) : IF
-remplacé en place par un seul Code node. Quand les deux côtés menaient à des actions différentes :
-IF/Switch remplacé par deux Code nodes (`Nom (yes)`/`Nom (no)`), chacun câblé vers sa vraie cible
-d'origine.
-
-Si un nouveau node IF/Switch booléen apparaît, vérifier avec :
-```
-grep '"type": "boolean"' workflows/*.json
-```
-(au 2026-07-04, les seuls hits restants sont légitimes — un champ `boundary_audit_passed` de type
-boolean dans deux Set nodes de `02-aggregation-boundary.json`, pas des comparateurs de routage).
+Pattern pour un routage à N branches mutuellement exclusives (remplace un IF/Switch à plusieurs
+sorties utiles) : N gates Code node **parallèles**, toutes alimentées par le même node amont,
+chacune vérifiant sa propre condition (voir `03-tl-interaction.json` : `Explain Request?`/
+`Report Request?`/`Status Question?`/`No Recognized Intent?`) — pas une chaîne séquentielle.

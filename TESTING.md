@@ -1,7 +1,13 @@
 # Pipemind — Plan de test end-to-end
 
-*Créé le 2026-07-11. Répartition des tests entre Justin et Mattia selon les rôles
-définis dans `config/roster.json`.*
+*Créé le 2026-07-11, mis à jour le même soir après la première vraie session de test.
+Répartition des tests entre Justin et Mattia selon les rôles définis dans `config/roster.json`.*
+
+**Important** : Justin et Mattia font chacun tourner leur **propre instance locale séparée**
+(Docker/Postgres/n8n indépendants) — un fix appliqué chez l'un ne s'applique pas automatiquement
+chez l'autre. Chacun doit `git pull` + réimporter les workflows modifiés dans son propre n8n.
+Les deux instances partagent en revanche le **même token de bot Discord** (voir "Blocages connus"
+plus bas — piste probable pour le bug de réactions).
 
 ## Qui teste quoi
 
@@ -13,8 +19,8 @@ enregistré comme `team_lead` dans le roster).
 | Workflow | Comment tester | État |
 |---|---|---|
 | `03 — F-16: Team Lead Interaction` | Écrire dans `#tl-approvals` (ex: "what's the project status", "explain what you do") | ✅ Testé, fonctionne (2026-07-11) |
-| Approval Gate (F-03) | Réagir ✅ / ✏️ / ❌ sur n'importe quel draft posté dans `#tl-approvals`, peu importe le workflow d'origine (client report, client Q&A, time-log, etc.) | À tester dès qu'un draft est généré |
-| `04 — F-01: Client Progress Report` (on-demand) | Déclencher via le trigger à la demande dans l'UI n8n, ou attendre le scheduler du vendredi | Non testé |
+| `04 — F-01: Client Progress Report` (on-demand) | Écrire "generate the weekly report" dans `#tl-approvals` (passe par `03`) | ✅ Testé, fonctionne (2026-07-11) — premier draft client de l'histoire du projet généré |
+| Approval Gate (F-03) — réagir sur un draft | Réagir ✅ / ✏️ / ❌ sur n'importe quel draft posté dans `#tl-approvals` | ❌ **Bloqué** — la réaction ne remonte jamais jusqu'à `01b` (voir "Blocages connus") |
 
 ### Mattia — rôle `developer`
 
@@ -23,7 +29,7 @@ Teste tout ce qui s'adresse à un développeur, avec son propre compte Discord
 
 | Workflow | Comment tester | État |
 |---|---|---|
-| `07 — F-17: Developer Project-Status Query` | DM au bot ("what's the project status", "explain what you do") | ⚠️ Bloqué — même bug pairedItem que `03` (pas encore corrigé) |
+| `07 — F-17: Developer Project-Status Query` | DM au bot ("what's the project status", "explain what you do") | ✅ Bug pairedItem corrigé (commit `3dd8e11`) — à retester après `git pull` |
 | `10 — F-05: Developer Check-In` | Attendre le déclenchement automatique, ou trigger manuel dans l'UI | ⚠️ Bloqué — `CLOCKIFY_WORKSPACE_ID` non configuré |
 | `11 — F-07: Time-Log Offer (EOD)` | Attendre `EOD_TIME`, ou trigger manuel | ⚠️ Bloqué — Clockify |
 | `12 — F-06: Unblock Assistance` | Répondre "yes"/"colleague"/"meeting"/"just-talk" à une offre d'aide | ⚠️ Bloqué — Clockify |
@@ -37,28 +43,38 @@ précise — n'importe qui avec accès au channel peut tester.
 
 | Workflow | Comment tester | État |
 |---|---|---|
-| `05 — F-02: Client Question Answering` | Poser une question dans `#client` (ex: "what's the status of the auth feature") | ⚠️ Bloqué — même bug pairedItem que `03` (pas encore corrigé) |
-| `06 — F-15: Client Welcome Message` | Se joindre au channel `#client` / premier message | ⚠️ Bloqué — même bug pairedItem que `03` (pas encore corrigé) |
+| `05 — F-02: Client Question Answering` | Poser une question dans `#client` (ex: "what's the status of the auth feature") | ✅ Bug pairedItem corrigé (commit `3dd8e11`) — à retester après `git pull`. Note : un draft `qa_reply` a déjà été généré avec succès sur l'instance de Mattia le 2026-07-11 avant même ce fix — donc ce chemin précis ne l'avait peut-être pas touché. |
+| `06 — F-15: Client Welcome Message` | Se joindre au channel `#client` / premier message | ✅ Bug pairedItem corrigé (commit `3dd8e11`) — à retester après `git pull` |
 
-## Blocages connus (2026-07-11)
+## Blocages connus (mis à jour 2026-07-11 fin de soirée)
 
-1. **Bug pairedItem `.item`/`.first()`** — corrigé dans `03` ce soir (commit `59bea5d`).
-   Le même pattern existe dans `05`, `06`, `07` (nodes `Verify Client`, `Verify Client
-   Join`, `Verify Developer`) — pas encore corrigé. Toute tentative de test sur ces
-   3 workflows va planter avec une erreur n8n trompeuse ("please unpin ... and try
-   again", qui n'a rien à voir avec du pinned data réel).
-2. **`CLOCKIFY_WORKSPACE_ID` non configuré** — bloque `10`, `11`, `12`, `01b`, `01c`
+1. **Les réactions Discord (✅/❌/✏️) ne remontent jamais jusqu'à `01b`** — **priorité #1**.
+   Piste probable : Justin et Mattia partagent le même token de bot Discord sur deux instances
+   locales séparées, ce qui peut causer une livraison d'événements Gateway incohérente (une
+   session "vole" des événements sans erreur visible). Les messages texte fonctionnent
+   parfaitement ; seules les réactions sont perdues. Webhook `approval-resolution` confirmé
+   bien enregistré côté n8n — donc probablement pas un bug de workflow. À vérifier en premier :
+   couper un des deux `discord-forwarder` et retester.
+2. **Bug pairedItem `.item`/`.first()`** — corrigé partout (`03`: commit `59bea5d`,
+   `05`/`06`/`07`: commit `3dd8e11`). Chaque instance doit `git pull` + réimporter pour en
+   bénéficier.
+3. **`CLOCKIFY_WORKSPACE_ID` non configuré** — bloque `10`, `11`, `12`, `01b`, `01c`
    (fail visiblement, par design).
-3. **Jira non configuré** — dégrade proprement (signal secondaire seulement, jamais
-   bloquant).
-4. **`GITHUB_OWNER`/`GITHUB_REPO` non configurés** — dégrade proprement (signal
-   secondaire seulement, jamais bloquant).
+4. **Jira / GitHub non configurés** — dégradent proprement (signal secondaire seulement,
+   jamais bloquant).
+5. **Incohérence de langue** — messages codés en dur en français/anglais mélangés, contenu
+   généré par Ollama en anglais par défaut (system prompt ne spécifie aucune langue cible).
+   Pas bloquant, à uniformiser.
+6. **IF natifs non audités dans `01`/`01b`/`01c`** — le bug de comparateur n8n 1.91.3 touche
+   plus de types (string/number, pas juste booléen) qu'initialement documenté. Ce chemin
+   (approval gate + delivery) n'a jamais été vérifié pour ce pattern.
 
 ## Notes
 
-- Chaque test déclenche un vrai message Discord / vraie exécution n8n sur
-  l'instance de Justin (`localhost:5678`) — pas d'environnement de test séparé.
+- Chaque instance (Justin, Mattia) tourne sa propre stack Docker locale complètement
+  séparée — vérifier les résultats dans SA PROPRE base (`execution_entity`), pas celle
+  de l'autre.
 - Après chaque exécution, on peut vérifier le résultat directement en base
   (`execution_entity`) sans dépendre uniquement de l'UI.
-- Ce fichier n'est pas commité automatiquement — dis-le si tu veux qu'il aille
-  dans le repo.
+- Détail complet des bugs trouvés/corrigés le 2026-07-11 : voir `RESTE_A_FAIRE.md`
+  section "5. Bugs trouvés le 2026-07-11".
