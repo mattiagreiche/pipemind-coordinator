@@ -183,16 +183,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: String('🚨 **Pipemind — Config Error**\\n\\n`roster.json` is missing or invalid. All workflows are paused until this is fixed.\\n\\n**Error:** ' + String($('Parse & Validate').item.json.error ?? '').slice(0, 300) + '\\n\\n**Fix:** Update `/config/roster.json` on the host and wait for the next 5-minute check (or reactivate Workflow 00 manually).').slice(0,2000) }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: String('🚨 **Pipemind — Config Error**\\n\\n`roster.json` is missing or invalid. All workflows are paused until this is fixed.\\n\\n**Error:** ' + String($('Parse & Validate').item.json.error ?? '').slice(0, 300) + '\\n\\n**Fix:** Update `/config/roster.json` on the host and wait for the next 5-minute check (or reactivate Workflow 00 manually).').slice(0,2000) }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -227,16 +224,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] **Startup error** — missing required environment variables: `' + $('Validate Env Vars').item.json.missing_vars.join('`, `') + '`. The agent cannot operate until these are set.' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] **Startup error** — missing required environment variables: `' + $('Validate Env Vars').item.json.missing_vars.join('`, `') + '`. The agent cannot operate until these are set.' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {

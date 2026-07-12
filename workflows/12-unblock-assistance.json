@@ -214,8 +214,12 @@
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "googleCalendarOAuth2Api",
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Aggregate Candidates').first().json.candidates.filter(c => c.calendar_email).slice(0, 50).map(c => ({ id: c.calendar_email })) }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Aggregate Candidates').first().json.candidates.filter(c => c.calendar_email).slice(0, 50).map(c => ({ id: c.calendar_email })) }) }}",
+        "rawContentType": "application/json",
+        "headerParameters": {
+          "parameters": []
+        }
       }
     },
     {
@@ -275,16 +279,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] Unblock assistance skipped today: both Clockify and Google Calendar were unavailable. No developers were contacted (SC-18 fail-safe).' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Unblock assistance skipped today: both Clockify and Google Calendar were unavailable. No developers were contacted (SC-18 fail-safe).' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -364,16 +365,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ recipient_id: $json.discord_id }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ recipient_id: $json.discord_id }) }}",
+        "rawContentType": "application/json"
       }
     },
     {
@@ -431,16 +429,13 @@
             {
               "name": "Authorization",
               "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] It looks like you may be running into a blocker on ' + $('Split Into Offer Items').item.json.feature_area + '. No pressure at all — just checking in to see if there is anything I can help with. Would you like some assistance?\\n\\nReply:\\n• yes — I want help\\n• no — I am fine, thanks' }) }}"
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] It looks like you may be running into a blocker on ' + $('Split Into Offer Items').item.json.feature_area + '. No pressure at all — just checking in to see if there is anything I can help with. Would you like some assistance?\\n\\nReply:\\n• yes — I want help\\n• no — I am fine, thanks' }) }}",
+        "rawContentType": "application/json"
       }
     },
     {

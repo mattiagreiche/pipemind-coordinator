@@ -99,8 +99,9 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "(SELECT feature_area, status_summary, has_blocker, source, last_primary_signal_at, updated_at\n FROM pipemind.project_signals)\nUNION ALL\n(SELECT NULL, NULL, NULL, NULL, NULL, NULL\n WHERE NOT EXISTS (SELECT 1 FROM pipemind.project_signals))\nORDER BY updated_at DESC;"
-      }
+        "query": "SELECT feature_area, status_summary, has_blocker, source, last_primary_signal_at, updated_at FROM pipemind.project_signals ORDER BY updated_at DESC;"
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "fetch-qa",
@@ -119,8 +120,9 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "(SELECT question_text, answer_text, feature_area, asked_at\n FROM pipemind.qa_history\n WHERE answer_text IS NOT NULL)\nUNION ALL\n(SELECT NULL, NULL, NULL, NULL\n WHERE NOT EXISTS (SELECT 1 FROM pipemind.qa_history WHERE answer_text IS NOT NULL))\nORDER BY asked_at DESC\nLIMIT 5;"
-      }
+        "query": "SELECT question_text, answer_text, feature_area, asked_at FROM pipemind.qa_history WHERE answer_text IS NOT NULL ORDER BY asked_at DESC LIMIT 5;"
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "fetch-standup",
@@ -139,11 +141,12 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "(SELECT standup_date, raw_text, feature_area, has_blocker\n FROM pipemind.standup_records\n WHERE discord_id = $1 AND standup_date >= CURRENT_DATE - INTERVAL '7 days')\nUNION ALL\n(SELECT NULL, NULL, NULL, NULL\n WHERE NOT EXISTS (\n   SELECT 1 FROM pipemind.standup_records\n   WHERE discord_id = $1 AND standup_date >= CURRENT_DATE - INTERVAL '7 days'\n ))\nORDER BY standup_date DESC\nLIMIT 7;",
+        "query": "SELECT standup_date, raw_text, feature_area, has_blocker FROM pipemind.standup_records WHERE discord_id = $1 AND standup_date >= CURRENT_DATE - INTERVAL '7 days' ORDER BY standup_date DESC LIMIT 7;",
         "options": {
           "queryReplacement": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "fetch-blockers",
@@ -163,7 +166,8 @@
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT COUNT(DISTINCT discord_id) AS developer_count, COUNT(DISTINCT feature_area) AS area_count FROM pipemind.standup_records WHERE has_blocker = TRUE AND standup_date >= CURRENT_DATE - INTERVAL '7 days';"
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "verify-caller",
@@ -182,11 +186,12 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "(SELECT discord_id, role FROM pipemind.roster WHERE discord_id = $1 AND active = true)\nUNION ALL\n(SELECT NULL, NULL WHERE NOT EXISTS (SELECT 1 FROM pipemind.roster WHERE discord_id = $1 AND active = true));",
+        "query": "SELECT discord_id, role FROM pipemind.roster WHERE discord_id = $1 AND active = true;",
         "options": {
           "queryReplacement": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "assemble",
@@ -198,7 +203,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const validated = $('Validate Input').item.json;\nconst purpose = validated.purpose;\n\n// Project signals — always safe, already aggregated (project-level)\nconst signalRows = $('Fetch Project Signals').all().filter(r => r.json.feature_area !== null);\nconst featureAreas = signalRows.map(r => ({\n  area: r.json.feature_area,\n  status: r.json.status_summary,\n  has_blocker: r.json.has_blocker,\n  source: r.json.source,\n  last_signal: r.json.last_primary_signal_at\n}));\n\n// bootstrapping: no standup-sourced project signals have been built yet (F-14.6)\n// Supplementary signals may exist while bootstrapping is still true.\nconst bootstrapping = !featureAreas.some(a => a.source === 'standup');\n\n// Last standup date — derived from standup-sourced project signals\nconst standupSignals = featureAreas\n  .filter(a => a.source === 'standup' && a.last_signal)\n  .map(a => a.last_signal)\n  .sort();\nconst lastStandupDate = standupSignals.length > 0 ? standupSignals[standupSignals.length - 1] : null;\n\n// Recent Q&A — always safe (project-level)\nconst qaRows = $('Fetch QA History').all().filter(r => r.json.question_text !== null);\nconst recentQA = qaRows.map(r => ({\n  question: r.json.question_text,\n  answer: r.json.answer_text,\n  area: r.json.feature_area,\n  when: r.json.asked_at\n}));\n\n// F-08.3: on a small team, a per-area blocker flag re-identifies who is blocked\n// (e.g. a single known owner per area) just as surely as a name would. This applies\n// to dev_self too: its project_picture covers every teammate's area, not only the\n// caller's own, so it is not a purely-self view.\nconst activeDevRows = $('Fetch Active Developer Count').all();\nconst totalActiveDevelopers = Number(activeDevRows[0]?.json?.active_developer_count ?? 0);\nconst smallTeam = totalActiveDevelopers < 3;\n\n// F-08.1: the Client boundary (Tier 1) is stricter than tl_internal (Tier 2) — Tier 1\n// forbids individual attribution \"of any kind, named or anonymised\", while Tier 2\n// explicitly permits anonymised work-area signals (F-08.2's own example: \"one developer\n// on the auth feature... blocked\"). A single-owner feature area re-identifies its owner\n// regardless of total team size, and team size alone can't detect that case without a\n// per-area contributor count this workflow doesn't compute — so for 'report', never\n// surface has_blocker at all rather than rely on a team-size threshold that can miss it.\nconst stripBlockerFlag = purpose === 'report' || smallTeam;\nconst visibleFeatureAreas = stripBlockerFlag\n  ? featureAreas.map(({ has_blocker, ...rest }) => rest)\n  : featureAreas;\n\nconst result = {\n  purpose,\n  bootstrapping,\n  project_picture: {\n    feature_areas: visibleFeatureAreas,\n    last_standup_date: lastStandupDate,\n    recent_qa: recentQA\n  }\n};\n\n// dev_self: caller must be in active roster; include their own standup records only\n// SC-14: raw individual data returned only to the person themselves (HIGH-2)\nif (purpose === 'dev_self') {\n  const rosterRows = $('Verify Caller In Roster').all().filter(r => r.json.discord_id !== null);\n  if (rosterRows.length === 0) {\n    throw new Error('F-14: caller_discord_id is not an active roster member');\n  }\n  const standupRows = $('Fetch Own Standup Records').all().filter(r => r.json.standup_date !== null);\n  result.own_standups = standupRows.map(r => ({\n    date: r.json.standup_date,\n    text: r.json.raw_text,\n    area: r.json.feature_area,\n    has_blocker: r.json.has_blocker\n  }));\n}\n\n// tl_internal: anonymised blocker signals (counts only, no names)\n// SC-03 Tier 2: work-area signals without naming any individual\nif (purpose === 'tl_internal') {\n  const blockerRows = $('Fetch Blocker Count').all();\n  const bc = blockerRows[0]?.json ?? {};\n  const rawDeveloperCount = Number(bc.developer_count ?? 0);\n\n  // F-08.3: on a small team, an exact count re-identifies who is blocked\n  // (e.g. \"1 of 2 developers blocked\" names that person as surely as their handle).\n  // Below the threshold, collapse to a category instead of a number.\n  const developerBlockerSignal = smallTeam\n    ? (rawDeveloperCount > 0 ? 'some' : 'none')\n    : rawDeveloperCount;\n\n  // F-08.3: an exact area count is just as re-identifying as the developer count on a\n  // small team (e.g. \"blockers in 2 of 3 areas\" narrows it down as much as a name would\n  // once the TL knows who owns which area). Collapse it the same way.\n  const rawAreaCount = Number(bc.area_count ?? 0);\n  const areaBlockerSignal = smallTeam\n    ? (rawAreaCount > 0 ? 'some' : 'none')\n    : rawAreaCount;\n\n  result.internal_signals = {\n    active_blocker_developer_count: developerBlockerSignal,\n    active_blocker_area_count: areaBlockerSignal\n  };\n}\n\nreturn [{ json: result }];"
+        "jsCode": "const validated = $('Validate Input').item.json;\nconst purpose = validated.purpose;\n\n// Project signals — always safe, already aggregated (project-level)\nconst signalRows = $('Fetch Project Signals').all().filter(r => r.json.feature_area != null);\nconst featureAreas = signalRows.map(r => ({\n  area: r.json.feature_area,\n  status: r.json.status_summary,\n  has_blocker: r.json.has_blocker,\n  source: r.json.source,\n  last_signal: r.json.last_primary_signal_at\n}));\n\n// bootstrapping: no standup-sourced project signals have been built yet (F-14.6)\n// Supplementary signals may exist while bootstrapping is still true.\nconst bootstrapping = !featureAreas.some(a => a.source === 'standup');\n\n// Last standup date — derived from standup-sourced project signals\nconst standupSignals = featureAreas\n  .filter(a => a.source === 'standup' && a.last_signal)\n  .map(a => a.last_signal)\n  .sort();\nconst lastStandupDate = standupSignals.length > 0 ? standupSignals[standupSignals.length - 1] : null;\n\n// Recent Q&A — always safe (project-level)\nconst qaRows = $('Fetch QA History').all().filter(r => r.json.question_text != null);\nconst recentQA = qaRows.map(r => ({\n  question: r.json.question_text,\n  answer: r.json.answer_text,\n  area: r.json.feature_area,\n  when: r.json.asked_at\n}));\n\n// F-08.3: on a small team, a per-area blocker flag re-identifies who is blocked\n// (e.g. a single known owner per area) just as surely as a name would. This applies\n// to dev_self too: its project_picture covers every teammate's area, not only the\n// caller's own, so it is not a purely-self view.\nconst activeDevRows = $('Fetch Active Developer Count').all();\nconst totalActiveDevelopers = Number(activeDevRows[0]?.json?.active_developer_count ?? 0);\nconst smallTeam = totalActiveDevelopers < 3;\n\n// F-08.1: the Client boundary (Tier 1) is stricter than tl_internal (Tier 2) — Tier 1\n// forbids individual attribution \"of any kind, named or anonymised\", while Tier 2\n// explicitly permits anonymised work-area signals (F-08.2's own example: \"one developer\n// on the auth feature... blocked\"). A single-owner feature area re-identifies its owner\n// regardless of total team size, and team size alone can't detect that case without a\n// per-area contributor count this workflow doesn't compute — so for 'report', never\n// surface has_blocker at all rather than rely on a team-size threshold that can miss it.\nconst stripBlockerFlag = purpose === 'report' || smallTeam;\nconst visibleFeatureAreas = stripBlockerFlag\n  ? featureAreas.map(({ has_blocker, ...rest }) => rest)\n  : featureAreas;\n\nconst result = {\n  purpose,\n  bootstrapping,\n  project_picture: {\n    feature_areas: visibleFeatureAreas,\n    last_standup_date: lastStandupDate,\n    recent_qa: recentQA\n  }\n};\n\n// dev_self: caller must be in active roster; include their own standup records only\n// SC-14: raw individual data returned only to the person themselves (HIGH-2)\nif (purpose === 'dev_self') {\n  const rosterRows = $('Verify Caller In Roster').all().filter(r => r.json.discord_id != null);\n  if (rosterRows.length === 0) {\n    throw new Error('F-14: caller_discord_id is not an active roster member');\n  }\n  const standupRows = $('Fetch Own Standup Records').all().filter(r => r.json.standup_date != null);\n  result.own_standups = standupRows.map(r => ({\n    date: r.json.standup_date,\n    text: r.json.raw_text,\n    area: r.json.feature_area,\n    has_blocker: r.json.has_blocker\n  }));\n}\n\n// tl_internal: anonymised blocker signals (counts only, no names)\n// SC-03 Tier 2: work-area signals without naming any individual\nif (purpose === 'tl_internal') {\n  const blockerRows = $('Fetch Blocker Count').all();\n  const bc = blockerRows[0]?.json ?? {};\n  const rawDeveloperCount = Number(bc.developer_count ?? 0);\n\n  // F-08.3: on a small team, an exact count re-identifies who is blocked\n  // (e.g. \"1 of 2 developers blocked\" names that person as surely as their handle).\n  // Below the threshold, collapse to a category instead of a number.\n  const developerBlockerSignal = smallTeam\n    ? (rawDeveloperCount > 0 ? 'some' : 'none')\n    : rawDeveloperCount;\n\n  // F-08.3: an exact area count is just as re-identifying as the developer count on a\n  // small team (e.g. \"blockers in 2 of 3 areas\" narrows it down as much as a name would\n  // once the TL knows who owns which area). Collapse it the same way.\n  const rawAreaCount = Number(bc.area_count ?? 0);\n  const areaBlockerSignal = smallTeam\n    ? (rawAreaCount > 0 ? 'some' : 'none')\n    : rawAreaCount;\n\n  result.internal_signals = {\n    active_blocker_developer_count: developerBlockerSignal,\n    active_blocker_area_count: areaBlockerSignal\n  };\n}\n\nreturn [{ json: result }];"
       }
     },
     {
@@ -219,7 +224,8 @@
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT COUNT(*)::int AS active_developer_count FROM pipemind.roster WHERE active = TRUE AND role = 'developer';"
-      }
+      },
+      "alwaysOutputData": true
     }
   ],
   "connections": {
