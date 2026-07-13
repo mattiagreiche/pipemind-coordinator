@@ -35,26 +35,27 @@
     {
       "id": "if-roster-valid",
       "name": "Roster Valid?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         500,
-        300
+        250
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.value }}",
-              "rightValue": "true",
-              "operator": {
-                "type": "string",
-                "operation": "equals",
-                "caseSensitive": true
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nif (j.value !== 'true') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-roster-invalid",
+      "name": "Roster Invalid?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        450
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (j.value === 'true') return [];\nreturn $input.all();"
       }
     },
     {
@@ -76,32 +77,34 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.approval_drafts\n  (feature_tag, content_type, draft_text, boundary_audit_passed,\n   approver_discord_id, discord_channel_id, context_json)\nVALUES\n  ($1, $2, $3, false, $4, $5, $6::jsonb)\nRETURNING draft_id, expires_at;",
         "options": {
-          "queryReplacement": "={{ [\n  $('Approval Gate Input').item.json.feature_tag,\n  $('Approval Gate Input').item.json.content_type,\n  ($('Approval Gate Input').item.json.draft_text ?? '').split('{{').join('{ {').split('${').join('$ {'),\n  $('Approval Gate Input').item.json.approver_discord_id,\n  $('Approval Gate Input').item.json.approval_channel_id,\n  JSON.stringify($('Approval Gate Input').item.json.context_json ?? {})\n] }}"
+          "queryReplacement": "={{ [\n  $('Approval Gate Input').first().json.feature_tag,\n  $('Approval Gate Input').first().json.content_type,\n  ($('Approval Gate Input').first().json.draft_text ?? '').split('{{').join('{ {').split('${').join('$ {'),\n  $('Approval Gate Input').first().json.approver_discord_id,\n  $('Approval Gate Input').first().json.approval_channel_id,\n  JSON.stringify($('Approval Gate Input').first().json.context_json ?? {})\n] }}"
         }
       }
     },
     {
       "id": "if-client-facing",
       "name": "Client-Facing?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1000,
-        200
+        150
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $('Approval Gate Input').item.json.content_type }}",
-              "rightValue": "^(report|qa_reply|welcome)$",
-              "operator": {
-                "type": "string",
-                "operation": "regex"
-              }
-            }
-          ]
-        }
+        "jsCode": "const contentType = $('Approval Gate Input').first().json.content_type;\nif (!/^(report|qa_reply|welcome)$/.test(contentType)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-non-client-facing",
+      "name": "Non-Client-Facing?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        350
+      ],
+      "parameters": {
+        "jsCode": "const contentType = $('Approval Gate Input').first().json.content_type;\nif (/^(report|qa_reply|welcome)$/.test(contentType)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -120,19 +123,19 @@
             {
               "id": "69fc8205",
               "name": "draft_text",
-              "value": "={{ $('Approval Gate Input').item.json.draft_text }}",
+              "value": "={{ $('Approval Gate Input').first().json.draft_text }}",
               "type": "string"
             },
             {
               "id": "480b71f5",
               "name": "content_type",
-              "value": "={{ $('Approval Gate Input').item.json.content_type }}",
+              "value": "={{ $('Approval Gate Input').first().json.content_type }}",
               "type": "string"
             },
             {
               "id": "2630adc7",
               "name": "feature_tag",
-              "value": "={{ $('Approval Gate Input').item.json.feature_tag }}",
+              "value": "={{ $('Approval Gate Input').first().json.feature_tag }}",
               "type": "string"
             }
           ]
@@ -178,7 +181,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET draft_text = $1,\n    boundary_audit_passed = true,\n    updated_at = now()\nWHERE draft_id = $2::uuid AND status = 'pending'\nRETURNING draft_text;",
         "options": {
-          "queryReplacement": "={{ [ $json.draft_text, $('Insert Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $json.draft_text, $('Insert Draft').first().json.draft_id ] }}"
         }
       }
     },
@@ -198,7 +201,7 @@
             {
               "id": "7adf3169",
               "name": "final_draft_text",
-              "value": "={{ $('Update Clean Draft').item.json.draft_text }}",
+              "value": "={{ $('Update Clean Draft').first().json.draft_text }}",
               "type": "string"
             }
           ]
@@ -224,7 +227,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET boundary_audit_passed = true,\n    updated_at = now()\nWHERE draft_id = $1::uuid AND status = 'pending';",
         "options": {
-          "queryReplacement": "={{ [ $('Insert Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Insert Draft').first().json.draft_id ] }}"
         }
       }
     },
@@ -244,7 +247,7 @@
             {
               "id": "46174b1b",
               "name": "final_draft_text",
-              "value": "={{ $('Approval Gate Input').item.json.draft_text }}",
+              "value": "={{ $('Approval Gate Input').first().json.draft_text }}",
               "type": "string"
             }
           ]
@@ -261,7 +264,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "const input = $('Approval Gate Input').item.json;\nconst draft = $('Insert Draft').item.json;\nconst clientFacing = ['report', 'qa_reply', 'welcome'];\n\n// Force TL approval channel for client-facing content types\nconst channelId = clientFacing.includes(input.content_type)\n  ? $env.TL_CHANNEL_ID\n  : input.approval_channel_id;\n\n// Use final_draft_text — F-08-rewritten for client-facing, original for non-client\nconst rawText = String($json.final_draft_text ?? '');\nconst safeText = rawText\n  .replace(/`/g, \"'\")\n  .slice(0, 1700)\n  + (rawText.length > 1700 ? '\\n[truncated — full text stored in DB]' : '');\n\nconst message = [\n  '📋 **Draft ready for review** — `' + input.content_type + '` (' + input.feature_tag + ')',\n  '',\n  '---',\n  safeText,\n  '---',\n  '',\n  'React ✅ to **approve** · ✏️ to **edit** · ❌ to **reject**',\n  '`Draft ID: ' + draft.draft_id + '`',\n  '⏰ Expires: ' + draft.expires_at\n].join('\\n');\n\nreturn [{ json: { channelId, message } }];"
+        "jsCode": "const input = $('Approval Gate Input').first().json;\nconst draft = $('Insert Draft').first().json;\nconst clientFacing = ['report', 'qa_reply', 'welcome'];\n\n// Force TL approval channel for client-facing content types\nconst channelId = clientFacing.includes(input.content_type)\n  ? $env.TL_CHANNEL_ID\n  : input.approval_channel_id;\n\n// Use final_draft_text — F-08-rewritten for client-facing, original for non-client\nconst rawText = String($json.final_draft_text ?? '');\nconst safeText = rawText\n  .replace(/`/g, \"'\")\n  .slice(0, 1700)\n  + (rawText.length > 1700 ? '\\n[truncated — full text stored in DB]' : '');\n\nconst message = [\n  '📋 **Draft ready for review** — `' + input.content_type + '` (' + input.feature_tag + ')',\n  '',\n  '---',\n  safeText,\n  '---',\n  '',\n  'React ✅ to **approve** · ✏️ to **edit** · ❌ to **reject**',\n  '`Draft ID: ' + draft.draft_id + '`',\n  '⏰ Expires: ' + draft.expires_at\n].join('\\n');\n\nreturn [{ json: { channelId, message } }];"
       }
     },
     {
@@ -311,7 +314,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET discord_message_id = $1\nWHERE draft_id = $2::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Post Approval Prompt').item.json.id, $('Insert Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Post Approval Prompt').first().json.id, $('Insert Draft').first().json.draft_id ] }}"
         }
       }
     },
@@ -331,19 +334,19 @@
             {
               "id": "82ffcb1a",
               "name": "draft_id",
-              "value": "={{ $('Insert Draft').item.json.draft_id }}",
+              "value": "={{ $('Insert Draft').first().json.draft_id }}",
               "type": "string"
             },
             {
               "id": "9669d70f",
               "name": "discord_message_id",
-              "value": "={{ $('Post Approval Prompt').item.json.id }}",
+              "value": "={{ $('Post Approval Prompt').first().json.id }}",
               "type": "string"
             },
             {
               "id": "f3cf4acb",
               "name": "expires_at",
-              "value": "={{ $('Insert Draft').item.json.expires_at }}",
+              "value": "={{ $('Insert Draft').first().json.expires_at }}",
               "type": "string"
             }
           ]
@@ -376,17 +379,6 @@
         ]
       ]
     },
-    "Check roster_valid": {
-      "main": [
-        [
-          {
-            "node": "Roster Valid?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Roster Valid?": {
       "main": [
         [
@@ -395,10 +387,30 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Roster Invalid?": {
+      "main": [
         [
           {
             "node": "Error — Roster Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check roster_valid": {
+      "main": [
+        [
+          {
+            "node": "Roster Valid?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Roster Invalid?",
             "type": "main",
             "index": 0
           }
@@ -410,6 +422,11 @@
         [
           {
             "node": "Client-Facing?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Non-Client-Facing?",
             "type": "main",
             "index": 0
           }
@@ -424,7 +441,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Non-Client-Facing?": {
+      "main": [
         [
           {
             "node": "Mark Boundary Passed",

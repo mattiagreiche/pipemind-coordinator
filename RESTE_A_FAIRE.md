@@ -1,9 +1,54 @@
 # Pipemind Coordinator — État du projet
 
-*Mis à jour le 2026-07-11 — premier test end-to-end réel du projet (00/03/04 validés, premier
-draft client généré), 2 blocages restants (réactions Discord, audit IF natifs 01/01b/01c). Section
-2026-07-05 (audit sécurité + F-14) conservée ci-dessous, toujours vraie. Cette section reflète
-l'état réel vérifié, pas l'état espéré.*
+*Mis à jour le 2026-07-13 — audit IF/Switch natifs complété sur 01/01b/01c (priorité #2 de la
+session du 2026-07-11, voir section dédiée ci-dessous). Reste bloqué : réactions Discord (priorité
+#1, inchangée). Section 2026-07-11 et 2026-07-05 conservées ci-dessous, toujours vraies.*
+
+## Audit IF/Switch natifs 01/01b/01c complété — 2026-07-13
+
+**Why:** priorité #2 laissée en suspens le 2026-07-11 — le bug de comparateur n8n 1.91.3
+(booléen/string/number, voir "Note technique" en bas de fichier) n'avait jamais été vérifié sur
+le chemin le plus critique du projet (approval gate + résolution + delivery). `01b` seul avait
+~65 occurrences `.item.json` non auditées en plus des nodes IF/Switch.
+
+**How to apply:** les 31 nodes `n8n-nodes-base.if`/`n8n-nodes-base.switch` restants (2 dans `01`,
+12 dans `01b`, 17 dans `01c`) ont tous été convertis au pattern Code node établi (single-branch
+`if (cond) return []; return $input.all();` ou N-gates parallèles pour un routage à N branches
+mutuellement exclusives). Confirmé par grep : zéro node IF/Switch restant dans les 3 fichiers.
+
+En parallèle, comme les 3 fichiers n'ont aucun node de fan-out (`splitInBatches`/`Split Into
+Items` — confirmé par inventaire des types de nodes), le même remplacement `.item.json` →
+`.first().json` que celui déjà appliqué à 03/05/06/07 a été fait par remplacement de texte global
+sur les 3 fichiers (17 occurrences dans `01`, 54 dans `01b`, 47 dans `01c`) — même bug pairedItem
+(Code node retournant un objet construit à la main sans `pairedItem`), même justification de
+sécurité (aucun risque de mélanger les données entre items puisqu'il n'y a jamais qu'un seul item
+en vol).
+
+**Bug trouvé et corrigé en cours d'audit (pas un simple renommage IF→Code)** : dans `01b`, les 6
+nodes du flux F-06 (Unblock Assistance) "If Active Offer (yes/no/colleague/meeting/just-talk/
+free-text)?" avaient leurs branches vraie/fausse **inversées** — la branche vraie (offre trouvée,
+`$input.all().length > 0`) menait à `Skip`, la branche fausse (aucune offre) menait au node de
+traitement réel (Mark Offer Accepted/Declined, Send Colleague/Meeting Prompt DM, Mark Just Talk,
+routage colleague/meeting). Concrètement : quand une offre de check-in existait, le flux la
+skippait silencieusement ; quand elle n'existait pas, le flux tentait quand même de la traiter.
+Corrigé en inversant le câblage lors de la conversion (la branche "offre trouvée" alimente
+maintenant le traitement, la branche "pas d'offre" alimente `Skip`). F-06 n'ayant jamais été testé
+en conditions réelles (voir section 4 plus bas), ce bug n'avait jamais été détecté par l'usage.
+
+**Revue de sécurité adversariale avant commit** (pattern établi de la session, jamais committé
+sans revue) : zéro finding. L'agent a vérifié indépendamment (reconstruit son propre graphe de
+connexions plutôt que de faire confiance à mes checks Python) : les 31 conversions, le câblage de
+chaque paire true/false contre la sémantique attendue de sa cible (aucune autre inversion
+trouvée), l'absence de fan-out justifiant le fix pairedItem, la non-régression sur le pattern de
+claim atomique `ON CONFLICT DO NOTHING RETURNING` + rollback de `01c` (commit `a287d10`), et
+l'absence de nouvelle fuite de secret ou d'injection SQL introduite par la substitution
+`.first()`.
+
+**Non fait cette session** : les fichiers `00`, `08`, `09`, `10`, `11`, `12`, `13` restent non
+audités pour ce pattern (mais listés comme moins prioritaires dans la note technique). Les 3
+fichiers audités aujourd'hui restent **non testés en conditions réelles** (bloqués par le même
+problème de réactions Discord que le 2026-07-11) — donc "logique correcte sur papier" à nouveau,
+pas encore "testé et qui marche".
 
 ## F-14 (Persistent Memory) câblé — 2026-07-05
 
@@ -393,8 +438,10 @@ Sans ces credentials, les workflows s'arrêtent à mi-chemin.
 - [ ] **Non corrigé, notez pour plus tard** : incohérence de langue des messages (mélange
       français/anglais dans le texte codé en dur, et le contenu généré par Ollama sort en anglais
       faute de langue cible spécifiée dans le system prompt)
-- [ ] **Non corrigé, notez pour plus tard** : le même pattern IF natif à auditer dans `01`/`01b`/`01c`
-      (voir note technique plus bas) — `01b` seul a ~65 occurrences de `.item.json` non vérifiées
+- [x] **Corrigé le 2026-07-13** : audit du pattern IF natif dans `01`/`01b`/`01c` (voir section
+      dédiée en haut de fichier) — 31 nodes convertis, 6 bugs de branches inversées trouvés et
+      corrigés dans le flux F-06 de `01b`, ~116 occurrences `.item.json` nettoyées, revue sécurité
+      adversariale : zéro finding
 - [ ] **Ne PAS appliquer le fix pairedItem mécaniquement à `10`/`11`/`12`** — ces 3 fichiers ont de
       vrais nodes de fan-out (`Split Into ... Items`, un par développeur) où `.first()` renverrait
       toujours les données de la même personne au lieu de la bonne — risque réel de mélanger les
@@ -421,10 +468,10 @@ projet est suspect, peu importe le type de comparaison (booléen, string, ou nom
 ```
 grep -c '"type": "n8n-nodes-base.if"\|"type": "n8n-nodes-base.switch"' workflows/*.json
 ```
-**Pas encore audité (session dédiée nécessaire)** : `01-approval-gate.json`, `01b-approval-resolution.json`,
-`01c-delivery-executor.json` ont un volume important de code non vérifié pour ce pattern — priorité
-haute car c'est le chemin le plus critique (approval gate + delivery). Les fichiers `00`, `02`,
-`08`, `09`, `10`, `11`, `12`, `13` n'ont pas non plus été audités mais sont moins prioritaires.
+**Audité et corrigé le 2026-07-13** : `01-approval-gate.json`, `01b-approval-resolution.json`,
+`01c-delivery-executor.json` — voir section dédiée en haut de fichier pour le détail. Les fichiers
+`00`, `02`, `08`, `09`, `10`, `11`, `12`, `13` restent non audités pour ce pattern mais sont moins
+prioritaires (chemin moins critique que l'approval gate + delivery).
 
 Pattern de fix établi (Code node unique, remplace un IF/Switch à une seule branche utile) :
 ```javascript

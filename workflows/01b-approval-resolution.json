@@ -63,41 +63,34 @@
         "operation": "executeQuery",
         "query": "SELECT draft_id, status, expires_at, approver_discord_id,\n       feature_tag, content_type, discord_channel_id, context_json\nFROM pipemind.approval_drafts\nWHERE discord_message_id = $1\nLIMIT 1;",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.message_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.message_id ] }}"
         }
       }
     },
     {
       "id": "if-valid-draft",
       "name": "Pending & Right Actor?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
-        200
+        150
       ],
       "parameters": {
-        "conditions": {
-          "combinator": "and",
-          "conditions": [
-            {
-              "leftValue": "={{ $json.status }}",
-              "rightValue": "pending",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            },
-            {
-              "leftValue": "={{ $json.approver_discord_id }}",
-              "rightValue": "={{ $('Classify Event').item.json.actor_discord_id }}",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "const j = $input.first().json;\nconst validActor = j.status === 'pending' && j.approver_discord_id === $('Classify Event').first().json.actor_discord_id;\nif (!validActor) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-invalid-draft",
+      "name": "Not Pending Or Wrong Actor?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        350
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst validActor = j.status === 'pending' && j.approver_discord_id === $('Classify Event').first().json.actor_discord_id;\nif (validActor) return [];\nreturn $input.all();"
       }
     },
     {
@@ -112,7 +105,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Lookup Draft').item.json.discord_channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Lookup Draft').first().json.discord_channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -130,79 +123,54 @@
     },
     {
       "id": "route-action",
-      "name": "Route Action",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3,
+      "name": "Route Action: Approve?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        50
+      ],
+      "parameters": {
+        "jsCode": "if ($('Classify Event').first().json.action !== 'approve') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-action-reject",
+      "name": "Route Action: Reject?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1750,
         250
       ],
       "parameters": {
-        "mode": "rules",
-        "rules": {
-          "values": [
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.action }}",
-                    "rightValue": "approve",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "approve"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.action }}",
-                    "rightValue": "reject",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "reject"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.action }}",
-                    "rightValue": "edit",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "edit"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.action }}",
-                    "rightValue": "edit_reply",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "edit_reply"
-            }
-          ]
-        }
+        "jsCode": "if ($('Classify Event').first().json.action !== 'reject') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-action-edit",
+      "name": "Route Action: Edit?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        450
+      ],
+      "parameters": {
+        "jsCode": "if ($('Classify Event').first().json.action !== 'edit') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-action-edit-reply",
+      "name": "Route Action: Edit Reply?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        650
+      ],
+      "parameters": {
+        "jsCode": "if ($('Classify Event').first().json.action !== 'edit_reply') return [];\nreturn $input.all();"
       }
     },
     {
@@ -224,32 +192,34 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET status = 'approved', settled_at = now()\nWHERE draft_id = $1::uuid AND status = 'pending' AND expires_at > now()\nRETURNING draft_id;",
         "options": {
-          "queryReplacement": "={{ [ $('Lookup Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Lookup Draft').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-got-lock",
       "name": "Got Approval Lock?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2250,
-        50
+        0
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-no-lock",
+      "name": "Lock Not Acquired?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        150
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
@@ -295,7 +265,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET status = 'rejected', settled_at = now()\nWHERE draft_id = $1::uuid AND status = 'pending';",
         "options": {
-          "queryReplacement": "={{ [ $('Lookup Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Lookup Draft').first().json.draft_id ] }}"
         }
       }
     },
@@ -311,7 +281,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Lookup Draft').item.json.discord_channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Lookup Draft').first().json.discord_channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -339,7 +309,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Lookup Draft').item.json.discord_channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Lookup Draft').first().json.discord_channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -351,7 +321,7 @@
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ content: String('✏️ **Edit mode** — reply to this message with your edited version.\\nYour reply replaces the draft. React ✅ on the reply to confirm.\\n`Draft ID: ' + $('Lookup Draft').item.json.draft_id + '`').slice(0,2000) }) }}",
+        "body": "={{ JSON.stringify({ content: String('✏️ **Edit mode** — reply to this message with your edited version.\\nYour reply replaces the draft. React ✅ on the reply to confirm.\\n`Draft ID: ' + $('Lookup Draft').first().json.draft_id + '`').slice(0,2000) }) }}",
         "rawContentType": "application/json"
       }
     },
@@ -365,7 +335,7 @@
         650
       ],
       "parameters": {
-        "jsCode": "const evt = $('Classify Event').item.json;\nconst draft = $('Lookup Draft').item.json;\n\n// Block edit path for colleague_dm — approver is requester, edit would allow social-engineering text\nif (draft.content_type === 'colleague_dm') {\n  return [{ json: { skip: true } }];\n}\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content — strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, reply_message_id: evt.reply_id, draft_id: draft.draft_id } }];"
+        "jsCode": "const evt = $('Classify Event').first().json;\nconst draft = $('Lookup Draft').first().json;\n\n// Block edit path for colleague_dm — approver is requester, edit would allow social-engineering text\nif (draft.content_type === 'colleague_dm') {\n  return [{ json: { skip: true } }];\n}\n\n// HIGH-01: verify the edit reply author is the approver\nif (evt.actor_discord_id !== draft.approver_discord_id) {\n  return [{ json: { skip: true } }];\n}\n\n// MED-03: sanitize content — strip n8n expression syntax, limit length\nconst safe = String(evt.content ?? '')\n  .replace(/\\{\\{/g, '{ {')\n  .replace(/\\$\\{/g, '$ {')\n  .slice(0, 2000);\n\nreturn [{ json: { skip: false, safe_content: safe, message_id: evt.message_id, reply_message_id: evt.reply_id, draft_id: draft.draft_id } }];"
       }
     },
     {
@@ -434,7 +404,7 @@
         "operation": "executeQuery",
         "query": "SELECT discord_id FROM pipemind.roster WHERE discord_id = $1 AND active = TRUE AND role = 'developer' LIMIT 1;",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.discord_id ] }}"
         }
       },
       "continueOnFail": false
@@ -454,109 +424,80 @@
     },
     {
       "id": "f06-route-switch",
-      "name": "F-06 Route",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3,
+      "name": "F-06 Route: Yes?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1000,
-        600
+        400
       ],
       "parameters": {
-        "mode": "rules",
-        "rules": {
-          "values": [
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.raw_action }}",
-                    "rightValue": "unblock_yes",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "unblock_yes"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.raw_action }}",
-                    "rightValue": "unblock_no",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "unblock_no"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.raw_action }}",
-                    "rightValue": "unblock_colleague",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "unblock_colleague"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.raw_action }}",
-                    "rightValue": "unblock_meeting",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "unblock_meeting"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.raw_action }}",
-                    "rightValue": "unblock_just_talk",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "unblock_just_talk"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Classify Event').item.json.raw_action }}",
-                    "rightValue": "unblock_free_text",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "unblock_free_text"
-            }
-          ]
-        }
+        "jsCode": "if ($('Classify Event').first().json.raw_action !== 'unblock_yes') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "f06-route-no",
+      "name": "F-06 Route: No?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        550
+      ],
+      "parameters": {
+        "jsCode": "if ($('Classify Event').first().json.raw_action !== 'unblock_no') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "f06-route-colleague",
+      "name": "F-06 Route: Colleague?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        700
+      ],
+      "parameters": {
+        "jsCode": "if ($('Classify Event').first().json.raw_action !== 'unblock_colleague') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "f06-route-meeting",
+      "name": "F-06 Route: Meeting?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        850
+      ],
+      "parameters": {
+        "jsCode": "if ($('Classify Event').first().json.raw_action !== 'unblock_meeting') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "f06-route-just-talk",
+      "name": "F-06 Route: Just Talk?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        1000
+      ],
+      "parameters": {
+        "jsCode": "if ($('Classify Event').first().json.raw_action !== 'unblock_just_talk') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "f06-route-free-text",
+      "name": "F-06 Route: Free Text?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        1150
+      ],
+      "parameters": {
+        "jsCode": "if ($('Classify Event').first().json.raw_action !== 'unblock_free_text') return [];\nreturn $input.all();"
       }
     },
     {
@@ -578,7 +519,7 @@
         "operation": "executeQuery",
         "query": "SELECT offer_id, dm_channel_id, feature_area, status\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'pending'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.discord_id ] }}"
         }
       },
       "continueOnFail": false
@@ -586,25 +527,27 @@
     {
       "id": "if-active-offer-yes",
       "name": "If Active Offer (yes)?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1500,
-        400
+        380
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-no-active-offer-yes",
+      "name": "No Active Offer (yes)?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        480
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
@@ -643,7 +586,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -683,7 +626,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers\nSET status = 'help_menu_sent', updated_at = now()\nWHERE offer_id = $1 AND status = 'accepted'",
         "options": {
-          "queryReplacement": "={{ [ $('Lookup Unblock Offer (yes)').item.json.offer_id ] }}"
+          "queryReplacement": "={{ [ $('Lookup Unblock Offer (yes)').first().json.offer_id ] }}"
         }
       },
       "continueOnFail": false
@@ -707,7 +650,7 @@
         "operation": "executeQuery",
         "query": "SELECT offer_id, dm_channel_id, feature_area, status\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'pending'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.discord_id ] }}"
         }
       },
       "continueOnFail": false
@@ -715,25 +658,27 @@
     {
       "id": "if-active-offer-no",
       "name": "If Active Offer (no)?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1500,
-        550
+        530
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-no-active-offer-no",
+      "name": "No Active Offer (no)?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        630
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
@@ -779,7 +724,7 @@
         "operation": "executeQuery",
         "query": "SELECT offer_id, dm_channel_id, feature_area\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'help_menu_sent'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.discord_id ] }}"
         }
       },
       "continueOnFail": false
@@ -787,25 +732,27 @@
     {
       "id": "if-active-offer-colleague",
       "name": "If Active Offer (colleague)?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1500,
-        700
+        680
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-no-active-offer-colleague",
+      "name": "No Active Offer (colleague)?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        780
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
@@ -820,7 +767,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -860,7 +807,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers\nSET status = 'colleague_pending', updated_at = now()\nWHERE offer_id = $1 AND status = 'help_menu_sent'",
         "options": {
-          "queryReplacement": "={{ [ $('Lookup Offer for Colleague').item.json.offer_id ] }}"
+          "queryReplacement": "={{ [ $('Lookup Offer for Colleague').first().json.offer_id ] }}"
         }
       },
       "continueOnFail": false
@@ -884,7 +831,7 @@
         "operation": "executeQuery",
         "query": "SELECT offer_id, dm_channel_id, feature_area\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'help_menu_sent'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.discord_id ] }}"
         }
       },
       "continueOnFail": false
@@ -892,25 +839,27 @@
     {
       "id": "if-active-offer-meeting",
       "name": "If Active Offer (meeting)?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1500,
-        850
+        830
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-no-active-offer-meeting",
+      "name": "No Active Offer (meeting)?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        930
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
@@ -925,7 +874,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -965,7 +914,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers\nSET status = 'meeting_pending', updated_at = now()\nWHERE offer_id = $1 AND status = 'help_menu_sent'",
         "options": {
-          "queryReplacement": "={{ [ $('Lookup Offer for Meeting').item.json.offer_id ] }}"
+          "queryReplacement": "={{ [ $('Lookup Offer for Meeting').first().json.offer_id ] }}"
         }
       },
       "continueOnFail": false
@@ -989,7 +938,7 @@
         "operation": "executeQuery",
         "query": "SELECT offer_id, dm_channel_id, feature_area\nFROM pipemind.unblock_offers\nWHERE discord_id = $1\n  AND status = 'help_menu_sent'\n  AND offer_date = CURRENT_DATE\nORDER BY created_at DESC LIMIT 1",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.discord_id ] }}"
         }
       },
       "continueOnFail": false
@@ -997,25 +946,27 @@
     {
       "id": "if-active-offer-just-talk",
       "name": "If Active Offer (just-talk)?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1500,
-        1000
+        980
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-no-active-offer-just-talk",
+      "name": "No Active Offer (just-talk)?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        1080
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
@@ -1054,7 +1005,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1094,7 +1045,7 @@
         "operation": "executeQuery",
         "query": "SELECT uo.offer_id, uo.dm_channel_id, uo.feature_area, uo.status, r.calendar_email AS requester_calendar_email\nFROM pipemind.unblock_offers uo\nJOIN pipemind.roster r ON r.discord_id = uo.discord_id\nWHERE uo.discord_id = $1\n  AND uo.status IN ('colleague_pending', 'meeting_pending')\n  AND uo.offer_date = CURRENT_DATE\nORDER BY uo.created_at DESC LIMIT 1",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.discord_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.discord_id ] }}"
         }
       },
       "continueOnFail": false
@@ -1102,72 +1053,53 @@
     {
       "id": "if-active-offer-free-text",
       "name": "If Active Offer (free-text)?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1500,
-        1150
+        1130
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-no-active-offer-free-text",
+      "name": "No Active Offer (free-text)?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        1230
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
       "id": "branch-colleague-or-meeting",
-      "name": "If Colleague or Meeting?",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3,
+      "name": "Colleague Pending?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1750,
-        1100
+        1080
       ],
       "parameters": {
-        "mode": "rules",
-        "rules": {
-          "values": [
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.status }}",
-                    "rightValue": "colleague_pending",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "colleague_pending"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.status }}",
-                    "rightValue": "meeting_pending",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "meeting_pending"
-            }
-          ]
-        }
+        "jsCode": "if ($input.first().json.status !== 'colleague_pending') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "branch-meeting-pending",
+      "name": "Meeting Pending?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        1200
+      ],
+      "parameters": {
+        "jsCode": "if ($input.first().json.status !== 'meeting_pending') return [];\nreturn $input.all();"
       }
     },
     {
@@ -1189,7 +1121,7 @@
         "operation": "executeQuery",
         "query": "SELECT discord_id AS colleague_discord_id, name, calendar_email AS colleague_calendar_email, clockify_user_id AS colleague_clockify_user_id\nFROM pipemind.roster\nWHERE active = TRUE AND role = 'developer'\n  AND LOWER(name) = LOWER($1)\n  AND discord_id != $2\nLIMIT 1",
         "options": {
-          "queryReplacement": "={{ [ $('Classify Event').item.json.content, $('Classify Event').item.json.discord_id ] }}"
+          "queryReplacement": "={{ [ $('Classify Event').first().json.content, $('Classify Event').first().json.discord_id ] }}"
         }
       },
       "continueOnFail": false
@@ -1197,25 +1129,27 @@
     {
       "id": "if-colleague-found",
       "name": "If Colleague Found?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2250,
-        1000
+        950
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-colleague-not-found",
+      "name": "Colleague Not Found?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        1050
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
@@ -1230,7 +1164,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1317,7 +1251,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1357,7 +1291,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers\nSET status = 'colleague_unavailable', updated_at = now()\nWHERE offer_id = $1",
         "options": {
-          "queryReplacement": "={{ [ $('Lookup Offer for Free Text').item.json.offer_id ] }}"
+          "queryReplacement": "={{ [ $('Lookup Offer for Free Text').first().json.offer_id ] }}"
         }
       },
       "continueOnFail": false
@@ -1381,7 +1315,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.approval_drafts\n  (approver_discord_id, discord_channel_id, feature_tag, content_type, draft_text, context_json, expires_at, boundary_audit_passed)\nVALUES\n  ($1, $2, 'F-06', 'colleague_dm',\n   '[Pipemind] A teammate could use a hand with ' || $3 || '. Are you available to connect with them today?',\n   jsonb_build_object('colleague_discord_id', $4, 'feature_area', $3, 'offer_id', $5::text),\n   now() + INTERVAL '48 hours',\n   TRUE)\nRETURNING draft_id;",
         "options": {
-          "queryReplacement": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $('Classify Event').item.json.channel_id,\n  $('Lookup Offer for Free Text').item.json.feature_area,\n  $('Resolve Colleague from Roster').item.json.colleague_discord_id,\n  $('Lookup Offer for Free Text').item.json.offer_id\n] }}"
+          "queryReplacement": "={{ [\n  $('Classify Event').first().json.discord_id,\n  $('Classify Event').first().json.channel_id,\n  $('Lookup Offer for Free Text').first().json.feature_area,\n  $('Resolve Colleague from Roster').first().json.colleague_discord_id,\n  $('Lookup Offer for Free Text').first().json.offer_id\n] }}"
         }
       },
       "continueOnFail": false
@@ -1398,7 +1332,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1414,7 +1348,7 @@
         "sendBody": true,
         "contentType": "json",
         "body": {
-          "content": "={{ '[Pipemind] Draft: A teammate could use a hand with ' + $('Lookup Offer for Free Text').item.json.feature_area + '. Are you available to connect with them today?\\n\\nReply ✅ to send, ❌ to cancel.' }}"
+          "content": "={{ '[Pipemind] Draft: A teammate could use a hand with ' + $('Lookup Offer for Free Text').first().json.feature_area + '. Are you available to connect with them today?\\n\\nReply ✅ to send, ❌ to cancel.' }}"
         },
         "specifyBody": "json"
       }
@@ -1438,7 +1372,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers\nSET status = 'colleague_draft_pending', draft_id = $1, updated_at = now()\nWHERE offer_id = $2",
         "options": {
-          "queryReplacement": "={{ [ $('Create Colleague Draft').item.json.draft_id, $('Lookup Offer for Free Text').item.json.offer_id ] }}"
+          "queryReplacement": "={{ [ $('Create Colleague Draft').first().json.draft_id, $('Lookup Offer for Free Text').first().json.offer_id ] }}"
         }
       },
       "continueOnFail": false
@@ -1453,7 +1387,7 @@
         1200
       ],
       "parameters": {
-        "jsCode": "const content = $('Classify Event').item.json.content ?? '';\nconst offerRow = $('Lookup Offer for Free Text').item.json;\n\n// Match pattern: HH:MM-HH:MM (today|tomorrow)?\nconst match = content.match(/^(\\d{1,2}):(\\d{2})\\s*[-–]\\s*(\\d{1,2}):(\\d{2})(?:\\s+(today|tomorrow))?/i);\n\nif (!match) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nconst [, startH, startM, endH, endM, dayWord] = match;\nconst now = new Date();\nconst base = new Date(now.getFullYear(), now.getMonth(), now.getDate());\n\nif (dayWord && dayWord.toLowerCase() === 'tomorrow') {\n  base.setDate(base.getDate() + 1);\n}\n\nconst start = new Date(base);\nstart.setHours(parseInt(startH, 10), parseInt(startM, 10), 0, 0);\n\nconst end = new Date(base);\nend.setHours(parseInt(endH, 10), parseInt(endM, 10), 0, 0);\n\nif (end <= start) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nreturn [{ json: {\n  parse_ok: true,\n  start_iso: start.toISOString(),\n  end_iso: end.toISOString(),\n  start_label: startH.padStart(2,'0') + ':' + startM,\n  end_label: endH.padStart(2,'0') + ':' + endM,\n  dm_channel_id: offerRow.dm_channel_id,\n  offer_id: offerRow.offer_id,\n  feature_area: offerRow.feature_area,\n  requester_calendar_email: offerRow.requester_calendar_email ?? ''\n}}];"
+        "jsCode": "const content = $('Classify Event').first().json.content ?? '';\nconst offerRow = $('Lookup Offer for Free Text').first().json;\n\n// Match pattern: HH:MM-HH:MM (today|tomorrow)?\nconst match = content.match(/^(\\d{1,2}):(\\d{2})\\s*[-–]\\s*(\\d{1,2}):(\\d{2})(?:\\s+(today|tomorrow))?/i);\n\nif (!match) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nconst [, startH, startM, endH, endM, dayWord] = match;\nconst now = new Date();\nconst base = new Date(now.getFullYear(), now.getMonth(), now.getDate());\n\nif (dayWord && dayWord.toLowerCase() === 'tomorrow') {\n  base.setDate(base.getDate() + 1);\n}\n\nconst start = new Date(base);\nstart.setHours(parseInt(startH, 10), parseInt(startM, 10), 0, 0);\n\nconst end = new Date(base);\nend.setHours(parseInt(endH, 10), parseInt(endM, 10), 0, 0);\n\nif (end <= start) {\n  return [{ json: {\n    parse_ok: false,\n    dm_channel_id: offerRow.dm_channel_id,\n    offer_id: offerRow.offer_id\n  }}];\n}\n\nreturn [{ json: {\n  parse_ok: true,\n  start_iso: start.toISOString(),\n  end_iso: end.toISOString(),\n  start_label: startH.padStart(2,'0') + ':' + startM,\n  end_label: endH.padStart(2,'0') + ':' + endM,\n  dm_channel_id: offerRow.dm_channel_id,\n  offer_id: offerRow.offer_id,\n  feature_area: offerRow.feature_area,\n  requester_calendar_email: offerRow.requester_calendar_email ?? ''\n}}];"
       }
     },
     {
@@ -1468,7 +1402,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1508,7 +1442,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.approval_drafts\n  (approver_discord_id, discord_channel_id, feature_tag, content_type, draft_text, context_json, expires_at, boundary_audit_passed)\nVALUES\n  ($1, $2, 'F-06', 'calendar_event',\n   '[Pipemind] Calendar block: Focus session for ' || $3 || ' — ' || $4 || ' to ' || $5 || '.',\n   jsonb_build_object('start_iso', $6, 'end_iso', $7, 'feature_area', $3, 'calendar_email', $8, 'offer_id', $9::text),\n   now() + INTERVAL '48 hours',\n   TRUE)\nRETURNING draft_id;",
         "options": {
-          "queryReplacement": "={{ [\n  $('Classify Event').item.json.discord_id,\n  $('Classify Event').item.json.channel_id,\n  $json.feature_area,\n  $json.start_label,\n  $json.end_label,\n  $json.start_iso,\n  $json.end_iso,\n  $json.requester_calendar_email,\n  $json.offer_id\n] }}"
+          "queryReplacement": "={{ [\n  $('Classify Event').first().json.discord_id,\n  $('Classify Event').first().json.channel_id,\n  $json.feature_area,\n  $json.start_label,\n  $json.end_label,\n  $json.start_iso,\n  $json.end_iso,\n  $json.requester_calendar_email,\n  $json.offer_id\n] }}"
         }
       },
       "continueOnFail": false
@@ -1525,7 +1459,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').item.json.channel_id }}/messages",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -1541,7 +1475,7 @@
         "sendBody": true,
         "contentType": "json",
         "body": {
-          "content": "={{ '[Pipemind] Calendar block: Focus session for ' + $('Parse Meeting Time').item.json.feature_area + ' — ' + $('Parse Meeting Time').item.json.start_label + ' to ' + $('Parse Meeting Time').item.json.end_label + '.\\n\\nReply ✅ to create the calendar block, ❌ to cancel.' }}"
+          "content": "={{ '[Pipemind] Calendar block: Focus session for ' + $('Parse Meeting Time').first().json.feature_area + ' — ' + $('Parse Meeting Time').first().json.start_label + ' to ' + $('Parse Meeting Time').first().json.end_label + '.\\n\\nReply ✅ to create the calendar block, ❌ to cancel.' }}"
         },
         "specifyBody": "json"
       }
@@ -1565,7 +1499,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers\nSET status = 'meeting_draft_pending', draft_id = $1, updated_at = now()\nWHERE offer_id = $2",
         "options": {
-          "queryReplacement": "={{ [ $('Create Meeting Draft').item.json.draft_id, $('Parse Meeting Time').item.json.offer_id ] }}"
+          "queryReplacement": "={{ [ $('Create Meeting Draft').first().json.draft_id, $('Parse Meeting Time').first().json.offer_id ] }}"
         }
       },
       "continueOnFail": false
@@ -1697,7 +1631,7 @@
         "nodeCredentialType": "googleCalendarOAuth2Api",
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Resolve Colleague from Roster').item.json.colleague_calendar_email ? [{ id: $('Resolve Colleague from Roster').item.json.colleague_calendar_email }] : [] }) }}",
+        "body": "={{ JSON.stringify({ timeMin: new Date().toISOString().slice(0, 10) + 'T00:00:00Z', timeMax: new Date().toISOString().slice(0, 10) + 'T23:59:59Z', items: $('Resolve Colleague from Roster').first().json.colleague_calendar_email ? [{ id: $('Resolve Colleague from Roster').first().json.colleague_calendar_email }] : [] }) }}",
         "rawContentType": "application/json",
         "headerParameters": {
           "parameters": []
@@ -1723,7 +1657,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET discord_message_id = $1\nWHERE draft_id = $2::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Send Colleague Draft DM').item.json.id, $('Create Colleague Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Send Colleague Draft DM').first().json.id, $('Create Colleague Draft').first().json.draft_id ] }}"
         }
       },
       "continueOnFail": false
@@ -1747,7 +1681,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts\nSET discord_message_id = $1\nWHERE draft_id = $2::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Send Meeting Draft DM').item.json.id, $('Create Meeting Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Send Meeting Draft DM').first().json.id, $('Create Meeting Draft').first().json.draft_id ] }}"
         }
       },
       "continueOnFail": false
@@ -1807,7 +1741,32 @@
       "main": [
         [
           {
-            "node": "F-06 Route",
+            "node": "F-06 Route: Yes?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "F-06 Route: No?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "F-06 Route: Colleague?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "F-06 Route: Meeting?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "F-06 Route: Just Talk?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "F-06 Route: Free Text?",
             "type": "main",
             "index": 0
           }
@@ -1819,6 +1778,11 @@
         [
           {
             "node": "Pending & Right Actor?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Not Pending Or Wrong Actor?",
             "type": "main",
             "index": 0
           }
@@ -1838,7 +1802,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Not Pending Or Wrong Actor?": {
+      "main": [
         [
           {
             "node": "Skip",
@@ -1848,8 +1816,8 @@
         ]
       ]
     },
-    "Route Action": {
-      "approve": [
+    "Route Action: Approve?": {
+      "main": [
         [
           {
             "node": "Mark Approved",
@@ -1857,8 +1825,10 @@
             "index": 0
           }
         ]
-      ],
-      "reject": [
+      ]
+    },
+    "Route Action: Reject?": {
+      "main": [
         [
           {
             "node": "Mark Rejected",
@@ -1866,8 +1836,10 @@
             "index": 0
           }
         ]
-      ],
-      "edit": [
+      ]
+    },
+    "Route Action: Edit?": {
+      "main": [
         [
           {
             "node": "Prompt for Edit",
@@ -1875,8 +1847,10 @@
             "index": 0
           }
         ]
-      ],
-      "edit_reply": [
+      ]
+    },
+    "Route Action: Edit Reply?": {
+      "main": [
         [
           {
             "node": "Sanitize Edit Content",
@@ -1893,6 +1867,11 @@
             "node": "Got Approval Lock?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Lock Not Acquired?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1905,7 +1884,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Lock Not Acquired?": {
+      "main": [
         [
           {
             "node": "Skip",
@@ -1948,8 +1931,8 @@
         ]
       ]
     },
-    "F-06 Route": {
-      "unblock_yes": [
+    "F-06 Route: Yes?": {
+      "main": [
         [
           {
             "node": "Lookup Unblock Offer (yes)",
@@ -1957,8 +1940,10 @@
             "index": 0
           }
         ]
-      ],
-      "unblock_no": [
+      ]
+    },
+    "F-06 Route: No?": {
+      "main": [
         [
           {
             "node": "Lookup Unblock Offer (no)",
@@ -1966,8 +1951,10 @@
             "index": 0
           }
         ]
-      ],
-      "unblock_colleague": [
+      ]
+    },
+    "F-06 Route: Colleague?": {
+      "main": [
         [
           {
             "node": "Lookup Offer for Colleague",
@@ -1975,8 +1962,10 @@
             "index": 0
           }
         ]
-      ],
-      "unblock_meeting": [
+      ]
+    },
+    "F-06 Route: Meeting?": {
+      "main": [
         [
           {
             "node": "Lookup Offer for Meeting",
@@ -1984,8 +1973,10 @@
             "index": 0
           }
         ]
-      ],
-      "unblock_just_talk": [
+      ]
+    },
+    "F-06 Route: Just Talk?": {
+      "main": [
         [
           {
             "node": "Lookup Offer for Just Talk",
@@ -1993,8 +1984,10 @@
             "index": 0
           }
         ]
-      ],
-      "unblock_free_text": [
+      ]
+    },
+    "F-06 Route: Free Text?": {
+      "main": [
         [
           {
             "node": "Lookup Offer for Free Text",
@@ -2011,6 +2004,11 @@
             "node": "If Active Offer (yes)?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "No Active Offer (yes)?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2019,14 +2017,18 @@
       "main": [
         [
           {
-            "node": "Skip",
+            "node": "Mark Offer Accepted",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "No Active Offer (yes)?": {
+      "main": [
         [
           {
-            "node": "Mark Offer Accepted",
+            "node": "Skip",
             "type": "main",
             "index": 0
           }
@@ -2062,6 +2064,11 @@
             "node": "If Active Offer (no)?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "No Active Offer (no)?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2070,14 +2077,18 @@
       "main": [
         [
           {
-            "node": "Skip",
+            "node": "Mark Offer Declined",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "No Active Offer (no)?": {
+      "main": [
         [
           {
-            "node": "Mark Offer Declined",
+            "node": "Skip",
             "type": "main",
             "index": 0
           }
@@ -2091,6 +2102,11 @@
             "node": "If Active Offer (colleague)?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "No Active Offer (colleague)?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2099,14 +2115,18 @@
       "main": [
         [
           {
-            "node": "Skip",
+            "node": "Send Colleague Prompt DM",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "No Active Offer (colleague)?": {
+      "main": [
         [
           {
-            "node": "Send Colleague Prompt DM",
+            "node": "Skip",
             "type": "main",
             "index": 0
           }
@@ -2131,6 +2151,11 @@
             "node": "If Active Offer (meeting)?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "No Active Offer (meeting)?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2139,14 +2164,18 @@
       "main": [
         [
           {
-            "node": "Skip",
+            "node": "Send Meeting Prompt DM",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "No Active Offer (meeting)?": {
+      "main": [
         [
           {
-            "node": "Send Meeting Prompt DM",
+            "node": "Skip",
             "type": "main",
             "index": 0
           }
@@ -2171,6 +2200,11 @@
             "node": "If Active Offer (just-talk)?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "No Active Offer (just-talk)?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2179,14 +2213,18 @@
       "main": [
         [
           {
-            "node": "Skip",
+            "node": "Mark Just Talk",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "No Active Offer (just-talk)?": {
+      "main": [
         [
           {
-            "node": "Mark Just Talk",
+            "node": "Skip",
             "type": "main",
             "index": 0
           }
@@ -2211,6 +2249,11 @@
             "node": "If Active Offer (free-text)?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "No Active Offer (free-text)?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2219,22 +2262,31 @@
       "main": [
         [
           {
-            "node": "Skip",
+            "node": "Colleague Pending?",
             "type": "main",
             "index": 0
-          }
-        ],
-        [
+          },
           {
-            "node": "If Colleague or Meeting?",
+            "node": "Meeting Pending?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "If Colleague or Meeting?": {
-      "colleague_pending": [
+    "No Active Offer (free-text)?": {
+      "main": [
+        [
+          {
+            "node": "Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Colleague Pending?": {
+      "main": [
         [
           {
             "node": "Resolve Colleague from Roster",
@@ -2242,8 +2294,10 @@
             "index": 0
           }
         ]
-      ],
-      "meeting_pending": [
+      ]
+    },
+    "Meeting Pending?": {
+      "main": [
         [
           {
             "node": "Parse Meeting Time",
@@ -2260,6 +2314,11 @@
             "node": "If Colleague Found?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Colleague Not Found?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2272,7 +2331,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Colleague Not Found?": {
+      "main": [
         [
           {
             "node": "Send Colleague Not Found DM",
@@ -2401,7 +2464,22 @@
       "main": [
         [
           {
-            "node": "Route Action",
+            "node": "Route Action: Approve?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Action: Reject?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Action: Edit?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Action: Edit Reply?",
             "type": "main",
             "index": 0
           }

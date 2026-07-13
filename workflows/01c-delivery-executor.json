@@ -31,139 +31,112 @@
         "operation": "executeQuery",
         "query": "SELECT draft_id, content_type,\n       COALESCE(edited_text, draft_text) AS final_text,\n       edited_text,\n       context_json,\n       approver_discord_id,\n       discord_channel_id\nFROM pipemind.approval_drafts\nWHERE draft_id = $1::uuid AND status = 'approved' AND boundary_audit_passed = TRUE;",
         "options": {
-          "queryReplacement": "={{ [ $('Delivery Input').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Delivery Input').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-draft-found",
       "name": "Draft Found?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         500,
-        300
+        250
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-draft-not-found",
+      "name": "Draft Not Found?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        450
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
       "id": "route-content-type",
-      "name": "Route by Content Type",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3,
+      "name": "Content Type: Report?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         750,
-        200
+        0
       ],
       "parameters": {
-        "mode": "rules",
-        "rules": {
-          "values": [
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.content_type }}",
-                    "rightValue": "report",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "report"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.content_type }}",
-                    "rightValue": "qa_reply",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "qa_reply"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.content_type }}",
-                    "rightValue": "welcome",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "welcome"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.content_type }}",
-                    "rightValue": "time_entry",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "time_entry"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.content_type }}",
-                    "rightValue": "colleague_dm",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "colleague_dm"
-            },
-            {
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.content_type }}",
-                    "rightValue": "calendar_event",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "outputKey": "calendar_event"
-            }
-          ]
-        }
+        "jsCode": "if ($input.first().json.content_type !== 'report') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-content-type-qa",
+      "name": "Content Type: QA Reply?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        150
+      ],
+      "parameters": {
+        "jsCode": "if ($input.first().json.content_type !== 'qa_reply') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-content-type-welcome",
+      "name": "Content Type: Welcome?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        300
+      ],
+      "parameters": {
+        "jsCode": "if ($input.first().json.content_type !== 'welcome') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-content-type-time-entry",
+      "name": "Content Type: Time Entry?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        450
+      ],
+      "parameters": {
+        "jsCode": "if ($input.first().json.content_type !== 'time_entry') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-content-type-colleague-dm",
+      "name": "Content Type: Colleague DM?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        600
+      ],
+      "parameters": {
+        "jsCode": "if ($input.first().json.content_type !== 'colleague_dm') return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "route-content-type-calendar-event",
+      "name": "Content Type: Calendar Event?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        750
+      ],
+      "parameters": {
+        "jsCode": "if ($input.first().json.content_type !== 'calendar_event') return [];\nreturn $input.all();"
       }
     },
     {
@@ -185,32 +158,34 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'drive_save', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'drive_save:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id, 'drive_save:' + $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-drive-new",
       "name": "Drive Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
-        50
+        0
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-drive-not-claimed",
+      "name": "Drive Not Claimed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        150
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn $input.all();"
       }
     },
     {
@@ -231,7 +206,7 @@
       "continueOnFail": true,
       "parameters": {
         "operation": "upload",
-        "name": "={{ 'progress-report-' + new Date().toISOString().split('T')[0] + '-' + $('Fetch Approved Draft').item.json.draft_id.slice(0,8) + '.txt' }}",
+        "name": "={{ 'progress-report-' + new Date().toISOString().split('T')[0] + '-' + $('Fetch Approved Draft').first().json.draft_id.slice(0,8) + '.txt' }}",
         "driveId": {
           "mode": "id",
           "value": "={{ $env.DRIVE_FOLDER_ID }}"
@@ -241,7 +216,7 @@
           "value": "={{ $env.DRIVE_FOLDER_ID }}"
         },
         "binaryData": false,
-        "textContent": "={{ $('Fetch Approved Draft').item.json.final_text }}"
+        "textContent": "={{ $('Fetch Approved Draft').first().json.final_text }}"
       }
     },
     {
@@ -263,32 +238,21 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'gmail_send', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'gmail_send:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id, 'gmail_send:' + $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-gmail-new",
       "name": "Gmail Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2250,
         0
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -311,7 +275,7 @@
         "operation": "send",
         "toList": "={{ $env.CLIENT_EMAIL }}",
         "subject": "={{ 'Project Progress Update — ' + new Date().toISOString().split('T')[0] }}",
-        "message": "={{ $('Fetch Approved Draft').item.json.final_text }}",
+        "message": "={{ $('Fetch Approved Draft').first().json.final_text }}",
         "options": {}
       }
     },
@@ -334,32 +298,21 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_qa', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_qa:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id, 'discord_qa:' + $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-qa-new",
       "name": "QA Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
         300
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -372,7 +325,7 @@
         250
       ],
       "parameters": {
-        "jsCode": "const draft = $('Fetch Approved Draft').item.json;\nconst stored = String(draft.context_json?.client_channel_id || '');\nconst expected = String($env.CLIENT_CHANNEL_ID || '');\nif (!stored || !expected || stored !== expected) {\n  throw new Error('Delivery aborted: context_json.client_channel_id does not match CLIENT_CHANNEL_ID. Possible channel manipulation.');\n}\nreturn [{ json: draft }];"
+        "jsCode": "const draft = $('Fetch Approved Draft').first().json;\nconst stored = String(draft.context_json?.client_channel_id || '');\nconst expected = String($env.CLIENT_CHANNEL_ID || '');\nif (!stored || !expected || stored !== expected) {\n  throw new Error('Delivery aborted: context_json.client_channel_id does not match CLIENT_CHANNEL_ID. Possible channel manipulation.');\n}\nreturn [{ json: draft }];"
       }
     },
     {
@@ -399,7 +352,7 @@
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ content: String($('Fetch Approved Draft').item.json.final_text).slice(0,2000) }) }}",
+        "body": "={{ JSON.stringify({ content: String($('Fetch Approved Draft').first().json.final_text).slice(0,2000) }) }}",
         "rawContentType": "application/json"
       }
     },
@@ -422,32 +375,21 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_welcome', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_welcome:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id, 'discord_welcome:' + $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-welcome-new",
       "name": "Welcome Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
         550
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -460,7 +402,7 @@
         500
       ],
       "parameters": {
-        "jsCode": "const draft = $('Fetch Approved Draft').item.json;\nconst stored = String(draft.context_json?.client_channel_id || '');\nconst expected = String($env.CLIENT_CHANNEL_ID || '');\nif (!stored || !expected || stored !== expected) {\n  throw new Error('Delivery aborted: context_json.client_channel_id does not match CLIENT_CHANNEL_ID. Possible channel manipulation.');\n}\nreturn [{ json: draft }];"
+        "jsCode": "const draft = $('Fetch Approved Draft').first().json;\nconst stored = String(draft.context_json?.client_channel_id || '');\nconst expected = String($env.CLIENT_CHANNEL_ID || '');\nif (!stored || !expected || stored !== expected) {\n  throw new Error('Delivery aborted: context_json.client_channel_id does not match CLIENT_CHANNEL_ID. Possible channel manipulation.');\n}\nreturn [{ json: draft }];"
       }
     },
     {
@@ -487,7 +429,7 @@
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ content: String($('Fetch Approved Draft').item.json.final_text).slice(0,2000) }) }}",
+        "body": "={{ JSON.stringify({ content: String($('Fetch Approved Draft').first().json.final_text).slice(0,2000) }) }}",
         "rawContentType": "application/json"
       }
     },
@@ -510,7 +452,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.client_welcomed (client_discord_id)\nVALUES ($1)\nON CONFLICT (client_discord_id) DO NOTHING;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.context_json?.client_discord_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.context_json?.client_discord_id ] }}"
         }
       }
     },
@@ -533,32 +475,21 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'clockify_write', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'clockify_write:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id, 'clockify_write:' + $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-clockify-new",
       "name": "Clockify Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
         800
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -580,7 +511,7 @@
         "operation": "executeQuery",
         "query": "SELECT clockify_user_id FROM pipemind.roster WHERE discord_id = $1 AND active = TRUE AND role = 'developer' LIMIT 1;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.approver_discord_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.approver_discord_id ] }}"
         }
       }
     },
@@ -594,7 +525,7 @@
         800
       ],
       "parameters": {
-        "jsCode": "const draft = $('Fetch Approved Draft').item.json;\nconst clockifyUserId = $json.clockify_user_id;\nif (!clockifyUserId) {\n  throw new Error('F-07 delivery aborted: no clockify_user_id in roster for approver_discord_id ' + draft.approver_discord_id);\n}\n\nconst contextJson = typeof draft.context_json === 'object' ? draft.context_json : {};\n\n// CRIT-03: validate draft_hours -- reject 0, negative, non-finite, >16h values\nconst rawDraftHours = Number(contextJson.draft_hours);\nconst draftHours = (isFinite(rawDraftHours) && rawDraftHours > 0 && rawDraftHours <= 16) ? rawDraftHours : 8;\n\n// MED-03: strip non-printable chars and clamp before it reaches Clockify description\nconst featureArea = String(contextJson.feature_area || 'General').replace(/[^\\x20-\\x7E]/g, '').slice(0, 80) || 'General';\n\n// CRIT-02: cap edited hours at 16h (same as draftHours max)\nlet finalHours = draftHours;\nconst editedText = String(draft.edited_text || '').trim();\nconst hourMatch = editedText.match(/^edit\\s+(\\d+(?:\\.\\d+)?)\\s*h(?:ours?)?/i);\nif (hourMatch) {\n  const parsed = parseFloat(hourMatch[1]);\n  if (!isNaN(parsed) && parsed > 0 && parsed <= 16) {\n    finalHours = parsed;\n  }\n}\n\n// Compute start/end based on EOD_TIME env var (e.g., '17:00' or '17:00:00')\nconst eodTime = String($env.EOD_TIME || '17:00');\nconst [eodHour, eodMin] = eodTime.split(':').map(n => parseInt(n, 10));\nconst today = new Date();\nconst endTime  = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), eodHour || 17, eodMin || 0, 0));\nconst startTime = new Date(endTime.getTime() - finalHours * 3_600_000);\n\n// CRIT-02: cross-day guard -- reject entries that would cross midnight\nif (startTime.getUTCDate() !== endTime.getUTCDate()) {\n  throw new Error('F-07 delivery aborted: ' + finalHours + 'h entry would cross midnight (end=' + endTime.toISOString() + '). Reduce hours or check EOD_TIME config.');\n}\n\nreturn [{ json: {\n  draft_id:            draft.draft_id,\n  discord_channel_id:  draft.discord_channel_id,\n  clockify_user_id:    clockifyUserId,\n  feature_area:        featureArea,\n  final_hours:         finalHours,\n  description:         featureArea !== 'General' ? 'Work on the ' + featureArea + ' feature' : 'General development work',\n  start_iso:           startTime.toISOString(),\n  end_iso:             endTime.toISOString()\n} }];"
+        "jsCode": "const draft = $('Fetch Approved Draft').first().json;\nconst clockifyUserId = $json.clockify_user_id;\nif (!clockifyUserId) {\n  throw new Error('F-07 delivery aborted: no clockify_user_id in roster for approver_discord_id ' + draft.approver_discord_id);\n}\n\nconst contextJson = typeof draft.context_json === 'object' ? draft.context_json : {};\n\n// CRIT-03: validate draft_hours -- reject 0, negative, non-finite, >16h values\nconst rawDraftHours = Number(contextJson.draft_hours);\nconst draftHours = (isFinite(rawDraftHours) && rawDraftHours > 0 && rawDraftHours <= 16) ? rawDraftHours : 8;\n\n// MED-03: strip non-printable chars and clamp before it reaches Clockify description\nconst featureArea = String(contextJson.feature_area || 'General').replace(/[^\\x20-\\x7E]/g, '').slice(0, 80) || 'General';\n\n// CRIT-02: cap edited hours at 16h (same as draftHours max)\nlet finalHours = draftHours;\nconst editedText = String(draft.edited_text || '').trim();\nconst hourMatch = editedText.match(/^edit\\s+(\\d+(?:\\.\\d+)?)\\s*h(?:ours?)?/i);\nif (hourMatch) {\n  const parsed = parseFloat(hourMatch[1]);\n  if (!isNaN(parsed) && parsed > 0 && parsed <= 16) {\n    finalHours = parsed;\n  }\n}\n\n// Compute start/end based on EOD_TIME env var (e.g., '17:00' or '17:00:00')\nconst eodTime = String($env.EOD_TIME || '17:00');\nconst [eodHour, eodMin] = eodTime.split(':').map(n => parseInt(n, 10));\nconst today = new Date();\nconst endTime  = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), eodHour || 17, eodMin || 0, 0));\nconst startTime = new Date(endTime.getTime() - finalHours * 3_600_000);\n\n// CRIT-02: cross-day guard -- reject entries that would cross midnight\nif (startTime.getUTCDate() !== endTime.getUTCDate()) {\n  throw new Error('F-07 delivery aborted: ' + finalHours + 'h entry would cross midnight (end=' + endTime.toISOString() + '). Reduce hours or check EOD_TIME config.');\n}\n\nreturn [{ json: {\n  draft_id:            draft.draft_id,\n  discord_channel_id:  draft.discord_channel_id,\n  clockify_user_id:    clockifyUserId,\n  feature_area:        featureArea,\n  final_hours:         finalHours,\n  description:         featureArea !== 'General' ? 'Work on the ' + featureArea + ' feature' : 'General development work',\n  start_iso:           startTime.toISOString(),\n  end_iso:             endTime.toISOString()\n} }];"
       }
     },
     {
@@ -628,25 +559,27 @@
     {
       "id": "if-clockify-write-ok",
       "name": "If Clockify Write OK?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2250,
-        800
+        750
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!(String($input.first().json.id ?? '') !== '')) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-clockify-write-failed",
+      "name": "If Clockify Write Failed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        900
+      ],
+      "parameters": {
+        "jsCode": "if (String($input.first().json.id ?? '') !== '') return [];\nreturn $input.all();"
       }
     },
     {
@@ -661,7 +594,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Time Entry').item.json.discord_channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Time Entry').first().json.discord_channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -689,7 +622,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Time Entry').item.json.discord_channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Time Entry').first().json.discord_channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -701,7 +634,7 @@
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time entry has been logged in Clockify: ' + $('Parse Time Entry').item.json.final_hours + 'h on ' + $('Parse Time Entry').item.json.feature_area + '. All done for today!' }) }}",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Your time entry has been logged in Clockify: ' + $('Parse Time Entry').first().json.final_hours + 'h on ' + $('Parse Time Entry').first().json.feature_area + '. All done for today!' }) }}",
         "rawContentType": "application/json"
       }
     },
@@ -735,32 +668,21 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'discord_colleague_dm', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'discord_colleague_dm:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id, 'discord_colleague_dm:' + $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-colleague-dm-new",
       "name": "Colleague DM Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
         1050
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -787,7 +709,7 @@
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ recipient_id: $('Fetch Approved Draft').item.json.context_json.colleague_discord_id }) }}",
+        "body": "={{ JSON.stringify({ recipient_id: $('Fetch Approved Draft').first().json.context_json.colleague_discord_id }) }}",
         "rawContentType": "application/json"
       }
     },
@@ -815,32 +737,34 @@
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ content: $('Fetch Approved Draft').item.json.final_text }) }}",
+        "body": "={{ JSON.stringify({ content: $('Fetch Approved Draft').first().json.final_text }) }}",
         "rawContentType": "application/json"
       }
     },
     {
       "id": "if-colleague-dm-ok",
       "name": "If Colleague DM OK?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2000,
-        1000
+        950
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!(String($input.first().json.id ?? '') !== '')) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-colleague-dm-failed",
+      "name": "If Colleague DM Failed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "if (String($input.first().json.id ?? '') !== '') return [];\nreturn $input.all();"
       }
     },
     {
@@ -855,7 +779,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Fetch Approved Draft').item.json.discord_channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Fetch Approved Draft').first().json.discord_channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -890,32 +814,21 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.delivered_actions (draft_id, action_type, dedup_key)\nVALUES ($1::uuid, 'calendar_event_create', $2)\nON CONFLICT (dedup_key) DO NOTHING\nRETURNING action_id;",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id, 'calendar_event_create:' + $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id, 'calendar_event_create:' + $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       }
     },
     {
       "id": "if-calendar-new",
       "name": "Calendar Event Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1250,
         1300
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $input.all().length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!($input.all().length > 0)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -928,31 +841,33 @@
         1250
       ],
       "parameters": {
-        "jsCode": "const draft = $('Fetch Approved Draft').item.json;\nconst ctx = typeof draft.context_json === 'object' ? draft.context_json : {};\nreturn [{ json: {\n  draft_id:        draft.draft_id,\n  channel_id:      draft.discord_channel_id,\n  start_iso:       ctx.start_iso ?? null,\n  end_iso:         ctx.end_iso ?? null,\n  feature_area:    String(ctx.feature_area ?? 'Focus session').slice(0, 80),\n  calendar_email:  ctx.calendar_email ?? ''\n}}];"
+        "jsCode": "const draft = $('Fetch Approved Draft').first().json;\nconst ctx = typeof draft.context_json === 'object' ? draft.context_json : {};\nreturn [{ json: {\n  draft_id:        draft.draft_id,\n  channel_id:      draft.discord_channel_id,\n  start_iso:       ctx.start_iso ?? null,\n  end_iso:         ctx.end_iso ?? null,\n  feature_area:    String(ctx.feature_area ?? 'Focus session').slice(0, 80),\n  calendar_email:  ctx.calendar_email ?? ''\n}}];"
       }
     },
     {
       "id": "if-calendar-email-set",
       "name": "If Calendar Email Set?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1750,
-        1250
+        1200
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.calendar_email }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!(String($input.first().json.calendar_email ?? '') !== '')) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-calendar-email-not-set",
+      "name": "If Calendar Email Not Set?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        1350
+      ],
+      "parameters": {
+        "jsCode": "if (String($input.first().json.calendar_email ?? '') !== '') return [];\nreturn $input.all();"
       }
     },
     {
@@ -985,25 +900,27 @@
     {
       "id": "if-calendar-ok",
       "name": "If Calendar OK?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2250,
-        1200
+        1150
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!(String($input.first().json.id ?? '') !== '')) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-calendar-failed",
+      "name": "If Calendar Failed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        1300
+      ],
+      "parameters": {
+        "jsCode": "if (String($input.first().json.id ?? '') !== '') return [];\nreturn $input.all();"
       }
     },
     {
@@ -1018,7 +935,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').item.json.channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').first().json.channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1030,7 +947,7 @@
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] Done — your calendar block has been created for ' + $('Parse Calendar Context').item.json.feature_area + '.' }) }}",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] Done — your calendar block has been created for ' + $('Parse Calendar Context').first().json.feature_area + '.' }) }}",
         "rawContentType": "application/json"
       }
     },
@@ -1046,7 +963,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').item.json.channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').first().json.channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1081,7 +998,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers SET status = 'colleague_done', updated_at = now()\nWHERE draft_id = $1::uuid AND status = 'colleague_draft_pending';",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       },
       "continueOnFail": true
@@ -1105,7 +1022,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers SET status = 'meeting_done', updated_at = now()\nWHERE draft_id = $1::uuid AND status = 'meeting_draft_pending';",
         "options": {
-          "queryReplacement": "={{ [ $('Fetch Approved Draft').item.json.draft_id ] }}"
+          "queryReplacement": "={{ [ $('Fetch Approved Draft').first().json.draft_id ] }}"
         }
       },
       "continueOnFail": true
@@ -1122,7 +1039,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').item.json.channel_id}/messages` }}",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Parse Calendar Context').first().json.channel_id}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1141,25 +1058,27 @@
     {
       "id": "if-drive-ok",
       "name": "If Drive OK?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1620,
         0
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!(String($input.first().json.id ?? '') !== '')) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-drive-failed",
+      "name": "If Drive Failed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        150
+      ],
+      "parameters": {
+        "jsCode": "if (String($input.first().json.id ?? '') !== '') return [];\nreturn $input.all();"
       }
     },
     {
@@ -1181,7 +1100,7 @@
         "operation": "executeQuery",
         "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Claim Drive').item.json.action_id ] }}"
+          "queryReplacement": "={{ [ $('Claim Drive').first().json.action_id ] }}"
         }
       }
     },
@@ -1215,26 +1134,15 @@
     },
     {
       "id": "if-gmail-ok",
-      "name": "If Gmail OK?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "name": "If Gmail Failed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2120,
         0
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (String($input.first().json.id ?? '') !== '') return [];\nreturn $input.all();"
       }
     },
     {
@@ -1256,7 +1164,7 @@
         "operation": "executeQuery",
         "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Claim Gmail').item.json.action_id ] }}"
+          "queryReplacement": "={{ [ $('Claim Gmail').first().json.action_id ] }}"
         }
       }
     },
@@ -1290,26 +1198,15 @@
     },
     {
       "id": "if-qa-ok",
-      "name": "If QA OK?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "name": "If QA Failed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2500,
         550
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (String($input.first().json.id ?? '') !== '') return [];\nreturn $input.all();"
       }
     },
     {
@@ -1331,7 +1228,7 @@
         "operation": "executeQuery",
         "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Claim QA').item.json.action_id ] }}"
+          "queryReplacement": "={{ [ $('Claim QA').first().json.action_id ] }}"
         }
       }
     },
@@ -1366,25 +1263,27 @@
     {
       "id": "if-welcome-ok",
       "name": "If Welcome OK?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2500,
-        350
+        300
       ],
       "parameters": {
-        "conditions": {
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "if (!(String($input.first().json.id ?? '') !== '')) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "if-welcome-failed",
+      "name": "If Welcome Failed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        450
+      ],
+      "parameters": {
+        "jsCode": "if (String($input.first().json.id ?? '') !== '') return [];\nreturn $input.all();"
       }
     },
     {
@@ -1406,7 +1305,7 @@
         "operation": "executeQuery",
         "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Claim Welcome').item.json.action_id ] }}"
+          "queryReplacement": "={{ [ $('Claim Welcome').first().json.action_id ] }}"
         }
       }
     },
@@ -1457,7 +1356,7 @@
         "operation": "executeQuery",
         "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Claim Clockify').item.json.action_id ] }}"
+          "queryReplacement": "={{ [ $('Claim Clockify').first().json.action_id ] }}"
         }
       }
     },
@@ -1480,7 +1379,7 @@
         "operation": "executeQuery",
         "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Claim Colleague DM').item.json.action_id ] }}"
+          "queryReplacement": "={{ [ $('Claim Colleague DM').first().json.action_id ] }}"
         }
       }
     },
@@ -1503,7 +1402,7 @@
         "operation": "executeQuery",
         "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Claim Calendar Event').item.json.action_id ] }}"
+          "queryReplacement": "={{ [ $('Claim Calendar Event').first().json.action_id ] }}"
         }
       }
     },
@@ -1526,7 +1425,7 @@
         "operation": "executeQuery",
         "query": "DELETE FROM pipemind.delivered_actions WHERE action_id = $1::uuid;",
         "options": {
-          "queryReplacement": "={{ [ $('Claim Calendar Event').item.json.action_id ] }}"
+          "queryReplacement": "={{ [ $('Claim Calendar Event').first().json.action_id ] }}"
         }
       }
     }
@@ -1550,6 +1449,11 @@
             "node": "Draft Found?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Draft Not Found?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1558,11 +1462,40 @@
       "main": [
         [
           {
-            "node": "Route by Content Type",
+            "node": "Content Type: Report?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Content Type: QA Reply?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Content Type: Welcome?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Content Type: Time Entry?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Content Type: Colleague DM?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Content Type: Calendar Event?",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Draft Not Found?": {
+      "main": [
         [
           {
             "node": "Skip — Draft Not Found",
@@ -1572,8 +1505,8 @@
         ]
       ]
     },
-    "Route by Content Type": {
-      "report": [
+    "Content Type: Report?": {
+      "main": [
         [
           {
             "node": "Claim Drive",
@@ -1581,8 +1514,10 @@
             "index": 0
           }
         ]
-      ],
-      "qa_reply": [
+      ]
+    },
+    "Content Type: QA Reply?": {
+      "main": [
         [
           {
             "node": "Claim QA",
@@ -1590,8 +1525,10 @@
             "index": 0
           }
         ]
-      ],
-      "welcome": [
+      ]
+    },
+    "Content Type: Welcome?": {
+      "main": [
         [
           {
             "node": "Claim Welcome",
@@ -1599,8 +1536,10 @@
             "index": 0
           }
         ]
-      ],
-      "time_entry": [
+      ]
+    },
+    "Content Type: Time Entry?": {
+      "main": [
         [
           {
             "node": "Claim Clockify",
@@ -1608,8 +1547,10 @@
             "index": 0
           }
         ]
-      ],
-      "colleague_dm": [
+      ]
+    },
+    "Content Type: Colleague DM?": {
+      "main": [
         [
           {
             "node": "Claim Colleague DM",
@@ -1617,8 +1558,10 @@
             "index": 0
           }
         ]
-      ],
-      "calendar_event": [
+      ]
+    },
+    "Content Type: Calendar Event?": {
+      "main": [
         [
           {
             "node": "Claim Calendar Event",
@@ -1657,6 +1600,11 @@
             "node": "If Clockify Write OK?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "If Clockify Write Failed?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1669,7 +1617,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "If Clockify Write Failed?": {
+      "main": [
         [
           {
             "node": "Release Clockify Claim",
@@ -1686,6 +1638,11 @@
             "node": "If Drive OK?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "If Drive Failed?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1694,7 +1651,7 @@
       "main": [
         [
           {
-            "node": "If Gmail OK?",
+            "node": "If Gmail Failed?",
             "type": "main",
             "index": 0
           }
@@ -1716,7 +1673,7 @@
       "main": [
         [
           {
-            "node": "If QA OK?",
+            "node": "If QA Failed?",
             "type": "main",
             "index": 0
           }
@@ -1741,6 +1698,11 @@
             "node": "If Welcome OK?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "If Welcome Failed?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1763,6 +1725,11 @@
             "node": "If Colleague DM OK?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "If Colleague DM Failed?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1775,7 +1742,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "If Colleague DM Failed?": {
+      "main": [
         [
           {
             "node": "Release Colleague DM Claim",
@@ -1792,6 +1763,11 @@
             "node": "If Calendar Email Set?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "If Calendar Email Not Set?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1804,7 +1780,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "If Calendar Email Not Set?": {
+      "main": [
         [
           {
             "node": "Release Calendar Claim — No Email",
@@ -1821,6 +1801,11 @@
             "node": "If Calendar OK?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "If Calendar Failed?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1833,7 +1818,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "If Calendar Failed?": {
+      "main": [
         [
           {
             "node": "Release Calendar Claim — Create Failed",
@@ -1861,6 +1850,11 @@
             "node": "Drive Claimed?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Drive Not Claimed?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1873,7 +1867,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Drive Not Claimed?": {
+      "main": [
         [
           {
             "node": "Claim Gmail",
@@ -1891,7 +1889,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "If Drive Failed?": {
+      "main": [
         [
           {
             "node": "Release Drive Claim",
@@ -1942,13 +1944,11 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
-    "If Gmail OK?": {
+    "If Gmail Failed?": {
       "main": [
-        [],
         [
           {
             "node": "Release Gmail Claim",
@@ -1993,13 +1993,11 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
-    "If QA OK?": {
+    "If QA Failed?": {
       "main": [
-        [],
         [
           {
             "node": "Release QA Claim",
@@ -2044,8 +2042,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "If Welcome OK?": {
@@ -2056,7 +2053,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "If Welcome Failed?": {
+      "main": [
         [
           {
             "node": "Release Welcome Claim",
@@ -2096,8 +2097,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "Release Clockify Claim": {
@@ -2130,8 +2130,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "Release Colleague DM Claim": {
@@ -2164,8 +2163,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "Release Calendar Claim — Create Failed": {
