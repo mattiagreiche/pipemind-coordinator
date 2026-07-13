@@ -28,7 +28,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const event = $input.first().json;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '✅': 'approve', '✏️': 'edit', '❌': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text message event\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  const content = (d.content ?? '').trim();\n  const discord_id = d.author?.id;\n  const channel_id = d.channel_id;\n\n  // Thread-reply (edit flow) — must check before F-06 command detection\n  if (referenced_id) {\n    return [{ json: {\n      skip: false,\n      eventType: 'message',\n      action: 'edit_reply',\n      message_id: referenced_id,\n      reply_id: d.id,\n      actor_discord_id: discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  // F-06 fixed command detection — plain DM with no referenced message\n  const FIXED_COMMANDS = ['yes', 'no', 'colleague', 'meeting', 'just-talk'];\n  const lower = content.toLowerCase();\n\n  if (lower === 'yes') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_yes',\n      raw_action: 'unblock_yes',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'no') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_no',\n      raw_action: 'unblock_no',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'colleague') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_colleague',\n      raw_action: 'unblock_colleague',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'meeting') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_meeting',\n      raw_action: 'unblock_meeting',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'just-talk') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_just_talk',\n      raw_action: 'unblock_just_talk',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'cancel') {\n    return [{ json: { skip: true } }];\n  }\n\n  // Non-command plain text — may be a free-text reply for colleague_pending / meeting_pending\n  if (content.length > 0) {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_free_text',\n      action: 'unblock_free_text',\n      raw_action: 'unblock_free_text',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n}\n\nreturn [{ json: { skip: true } }];"
+        "jsCode": "const raw = $input.first().json;\nconst event = raw.body ?? raw;\nconst d = event.d ?? event;\n\n// Reaction event\nif (event.t === 'MESSAGE_REACTION_ADD') {\n  const emoji = d.emoji?.name;\n  const actionMap = { '✅': 'approve', '✏️': 'edit', '❌': 'reject' };\n  const action = actionMap[emoji];\n  if (!action) return [{ json: { skip: true } }];\n  return [{ json: {\n    skip: false,\n    eventType: 'reaction',\n    action,\n    message_id: d.message_id,\n    actor_discord_id: d.user_id,\n    channel_id: d.channel_id\n  }}];\n}\n\n// Text message event\nif (event.t === 'MESSAGE_CREATE' || event.type === 0) {\n  const referenced_id = d.referenced_message?.id ?? null;\n  const content = (d.content ?? '').trim();\n  const discord_id = d.author?.id;\n  const channel_id = d.channel_id;\n\n  // Thread-reply (edit flow) — must check before F-06 command detection\n  if (referenced_id) {\n    return [{ json: {\n      skip: false,\n      eventType: 'message',\n      action: 'edit_reply',\n      message_id: referenced_id,\n      reply_id: d.id,\n      actor_discord_id: discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  // F-06 fixed command detection — plain DM with no referenced message\n  const FIXED_COMMANDS = ['yes', 'no', 'colleague', 'meeting', 'just-talk'];\n  const lower = content.toLowerCase();\n\n  if (lower === 'yes') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_yes',\n      raw_action: 'unblock_yes',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'no') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_no',\n      raw_action: 'unblock_no',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'colleague') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_colleague',\n      raw_action: 'unblock_colleague',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'meeting') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_meeting',\n      raw_action: 'unblock_meeting',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'just-talk') {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_command',\n      action: 'unblock_just_talk',\n      raw_action: 'unblock_just_talk',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n\n  if (lower === 'cancel') {\n    return [{ json: { skip: true } }];\n  }\n\n  // Non-command plain text — may be a free-text reply for colleague_pending / meeting_pending\n  if (content.length > 0) {\n    return [{ json: {\n      skip: false,\n      eventType: 'f06_free_text',\n      action: 'unblock_free_text',\n      raw_action: 'unblock_free_text',\n      discord_id,\n      channel_id,\n      content\n    }}];\n  }\n}\n\nreturn [{ json: { skip: true } }];"
       }
     },
     {
@@ -232,8 +232,11 @@
         50
       ],
       "parameters": {
-        "options": {
-          "workflowName": "01c — F-03: Delivery Executor (Sub-Workflow)"
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $env.DELIVERY_EXECUTOR_WORKFLOW_ID }}",
+          "mode": "id"
         },
         "mode": "each",
         "workflowInputs": {
@@ -243,7 +246,8 @@
               "value": "={{ $json.draft_id }}"
             }
           ]
-        }
+        },
+        "options": {}
       }
     },
     {
@@ -587,8 +591,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -768,8 +770,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -875,8 +875,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -1006,8 +1004,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -1165,8 +1161,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -1198,8 +1192,6 @@
       "parameters": {
         "method": "GET",
         "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/time-off/requests",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {
           "response": {
             "response": {
@@ -1252,8 +1244,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -1333,8 +1323,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -1403,8 +1391,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -1460,8 +1446,6 @@
       "parameters": {
         "method": "POST",
         "url": "=https://discord.com/api/v10/channels/{{ $('Classify Event').first().json.channel_id }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {
@@ -1620,8 +1604,8 @@
       "continueOnFail": true,
       "credentials": {
         "googleCalendarOAuth2Api": {
-          "id": "pipemindGoogleCalendar",
-          "name": "Pipemind Google Calendar"
+          "id": "QLPhcT7Vchnjrqsp",
+          "name": "Google Calendar account"
         }
       },
       "parameters": {

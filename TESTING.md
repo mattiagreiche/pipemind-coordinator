@@ -46,15 +46,17 @@ précise — n'importe qui avec accès au channel peut tester.
 | `05 — F-02: Client Question Answering` | Poser une question dans `#client` (ex: "what's the status of the auth feature") | ✅ Bug pairedItem corrigé (commit `3dd8e11`) — à retester après `git pull`. Note : un draft `qa_reply` a déjà été généré avec succès sur l'instance de Mattia le 2026-07-11 avant même ce fix — donc ce chemin précis ne l'avait peut-être pas touché. |
 | `06 — F-15: Client Welcome Message` | Se joindre au channel `#client` / premier message | ✅ Bug pairedItem corrigé (commit `3dd8e11`) — à retester après `git pull` |
 
-## Blocages connus (mis à jour 2026-07-11 fin de soirée)
+## Blocages connus (mis à jour 2026-07-13 soir)
 
-1. **Les réactions Discord (✅/❌/✏️) ne remontent jamais jusqu'à `01b`** — **priorité #1**.
-   Piste probable : Justin et Mattia partagent le même token de bot Discord sur deux instances
-   locales séparées, ce qui peut causer une livraison d'événements Gateway incohérente (une
-   session "vole" des événements sans erreur visible). Les messages texte fonctionnent
-   parfaitement ; seules les réactions sont perdues. Webhook `approval-resolution` confirmé
-   bien enregistré côté n8n — donc probablement pas un bug de workflow. À vérifier en premier :
-   couper un des deux `discord-forwarder` et retester.
+1. **Les réactions Discord (✅/❌/✏️) ne remontaient jamais jusqu'à `01b`** — **priorité #1**,
+   probablement réglée le 2026-07-13. Le 2026-07-11, la théorie était un token de bot Discord
+   partagé entre Justin et Mattia sur deux instances locales. Cette théorie n'a jamais été
+   vérifiée directement — en testant `01b` en direct (webhook simulé, contournant Discord), on a
+   trouvé que le node `Classify Event` ne déballait jamais le wrapper `.body` du webhook n8n,
+   donc TOUT événement (réaction ou message) tombait systématiquement en `skip: true`. Ce bug de
+   code suffit à expliquer tout le symptôme observé — corrigé. **Reste à confirmer avec une vraie
+   réaction Discord** (pas encore fait) avant de considérer ça définitivement réglé. Voir
+   `RESTE_A_FAIRE.md` section "Tests end-to-end 01b/01c" pour le détail complet.
 2. **Bug pairedItem `.item`/`.first()`** — corrigé partout (`03`: commit `59bea5d`,
    `05`/`06`/`07`: commit `3dd8e11`). Chaque instance doit `git pull` + réimporter pour en
    bénéficier.

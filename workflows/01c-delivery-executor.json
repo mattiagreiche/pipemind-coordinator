@@ -189,6 +189,19 @@
       }
     },
     {
+      "id": "prepare-drive-upload",
+      "name": "Prepare Drive Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1375,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const draft = $('Fetch Approved Draft').first().json;\nconst text = String(draft.final_text ?? '');\nconst fileName = 'progress-report-' + new Date().toISOString().split('T')[0] + '-' + draft.draft_id.slice(0, 8) + '.txt';\n\nreturn [{\n  json: $input.first().json,\n  binary: {\n    data: {\n      data: Buffer.from(text, 'utf-8').toString('base64'),\n      mimeType: 'text/plain',\n      fileName\n    }\n  }\n}];"
+      }
+    },
+    {
       "id": "save-drive",
       "name": "Save to Drive",
       "type": "n8n-nodes-base.googleDrive",
@@ -199,8 +212,8 @@
       ],
       "credentials": {
         "googleDriveOAuth2Api": {
-          "id": "pipemindGoogleDrive",
-          "name": "Pipemind Google Drive"
+          "id": "SAyj8Ovli7hMCL9c",
+          "name": "Google Drive account"
         }
       },
       "continueOnFail": true,
@@ -215,8 +228,7 @@
           "mode": "id",
           "value": "={{ $env.DRIVE_FOLDER_ID }}"
         },
-        "binaryData": false,
-        "textContent": "={{ $('Fetch Approved Draft').first().json.final_text }}"
+        "inputDataFieldName": "data"
       }
     },
     {
@@ -273,7 +285,7 @@
       "continueOnFail": true,
       "parameters": {
         "operation": "send",
-        "toList": "={{ $env.CLIENT_EMAIL }}",
+        "sendTo": "={{ $env.CLIENT_EMAIL }}",
         "subject": "={{ 'Project Progress Update — ' + new Date().toISOString().split('T')[0] }}",
         "message": "={{ $('Fetch Approved Draft').first().json.final_text }}",
         "options": {}
@@ -883,17 +895,20 @@
       "parameters": {
         "method": "POST",
         "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-        "authentication": "oAuth2",
-        "credential": {
-          "id": "pipemindGoogleCalendar",
-          "name": "Pipemind Google Calendar"
-        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
         "sendBody": true,
         "contentType": "raw",
         "body": "={{ JSON.stringify({ summary: 'Focus session — ' + $json.feature_area, start: { dateTime: $json.start_iso }, end: { dateTime: $json.end_iso } }) }}",
         "rawContentType": "application/json",
         "headerParameters": {
           "parameters": []
+        }
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "QLPhcT7Vchnjrqsp",
+          "name": "Google Calendar account"
         }
       }
     },
@@ -1860,6 +1875,17 @@
       ]
     },
     "Drive Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Drive Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Drive Upload": {
       "main": [
         [
           {

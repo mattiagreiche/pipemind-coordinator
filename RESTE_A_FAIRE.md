@@ -1,8 +1,82 @@
 # Pipemind Coordinator — État du projet
 
-*Mis à jour le 2026-07-13 — audit IF/Switch natifs complété sur 01/01b/01c (priorité #2 de la
-session du 2026-07-11, voir section dédiée ci-dessous). Reste bloqué : réactions Discord (priorité
-#1, inchangée). Section 2026-07-11 et 2026-07-05 conservées ci-dessous, toujours vraies.*
+*Mis à jour le 2026-07-13 (soir) — premier test end-to-end réel de 01b/01c, qui a révélé que la
+vraie cause des "réactions Discord qui ne remontent jamais" (priorité #1 depuis le 2026-07-11)
+était un vrai bug de code dans `01b`, pas le token Discord partagé. Voir section "Tests end-to-end
+01b/01c" plus bas pour le détail complet. Audit IF/Switch (priorité #2, complété plus tôt le même
+jour) toujours vrai, voir section dédiée juste en dessous. Sections 2026-07-11 et 2026-07-05
+conservées, toujours vraies.*
+
+## Tests end-to-end 01b/01c — 2026-07-13 (soir), première exécution réelle de l'histoire du projet
+
+**Contexte** : après l'audit IF/Switch (voir section suivante), test réel de `01`/`01b`/`01c` en
+simulant des payloads webhook Discord directement (POST sur `/webhook/tl-interaction` et
+`/webhook/approval-resolution` avec le format `{t, d}` exact du `discord-forwarder`) — ça
+contourne le blocage des réactions Discord réelles sans dépendre de sa résolution, et a permis de
+faire tourner `01b` pour la toute première fois de l'histoire du projet (zéro exécution
+précédente en base, confirmé via `execution_entity`).
+
+**Découverte majeure — la vraie cause du bug des réactions** : le node `Classify Event` de `01b`
+lisait `$input.first().json` directement, sans jamais déballer le wrapper `.body` que le webhook
+node de n8n place autour du payload réel (`{headers, params, query, body: {t, d}, ...}`).
+Résultat : `event.t` était toujours `undefined`, donc **tout** événement (réaction ✅/✏️/❌ **et**
+message texte) tombait systématiquement dans `skip: true`, peu importe le contenu. Le node
+équivalent dans `03-tl-interaction.json` (`Filter Message`) fait `const event = raw.body ?? raw;`
+avant d'accéder aux champs — `01b` ne l'a jamais fait. **Ça remet en question le diagnostic du
+2026-07-11** (bot Discord partagé entre deux instances locales) — cette théorie n'a jamais été
+vérifiée directement et ce bug de code suffit à expliquer tout le symptôme observé. Corrigé en
+ajoutant le même unwrap que `03`.
+
+**Cascade de bugs supplémentaires trouvés en poussant le test jusqu'au bout** (tous préexistants,
+jamais détectés car ces chemins n'avaient jamais tourné) :
+- 10 nodes httpRequest dans `01b` (+ 1 dans `05-client-qa.json`, trouvé en scan proactif du même
+  pattern) avaient un résidu `authentication: "genericCredentialType"` + `genericAuthType:
+  "httpHeaderAuth"` sans credential attaché — bloquait la validation pré-vol de n8n
+  (`checkReadyForExecution`, qui vérifie TOUS les nodes atteignables depuis le trigger, pas
+  seulement ceux du chemin emprunté) pour tout le workflow. Retiré : ces nodes s'authentifient déjà
+  correctement via header manuel (`Authorization: Bot ...` / `X-Api-Key`).
+- `Call Delivery Executor` (`01b`) n'avait jamais eu de champ `workflowId` — ne pouvait jamais
+  réellement invoquer `01c`. Corrigé avec `$env.DELIVERY_EXECUTOR_WORKFLOW_ID`, même pattern que
+  `Call F-08 Boundary Audit` dans `01`.
+- `Create Calendar Event` (`01c`) avait `authentication: "oAuth2"` (valeur invalide pour ce type de
+  node) + un credential mal placé dans `parameters.credential` au lieu de `node.credentials`.
+  Corrigé au pattern correct (`predefinedCredentialType` + `nodeCredentialType`).
+- `Send Gmail` (`01c`) utilisait `toList` au lieu du vrai nom de champ requis `sendTo` (confirmé
+  dans le code source du node Gmail v2 installé) — le champ destinataire était donc toujours vide.
+- Le node Google Drive natif (typeVersion 3) n'a **aucun mode texte brut** — il attend toujours des
+  données binaires (confirmé dans le code source du node : pas de propriété `binaryData`/
+  `textContent` dans son schéma). `Save to Drive` échouait donc systématiquement. Ajouté un node
+  `Prepare Drive Upload` qui convertit `final_text` en base64 avant l'upload.
+- Les credentials Google Calendar (`01b` + `01c`) et Google Drive (`01c`) référençaient des IDs
+  placeholder qui n'ont jamais existé (`pipemindGoogleCalendar`, `pipemindGoogleDrive`) — corrigés
+  vers les vrais IDs (`QLPhcT7Vchnjrqsp` "Google Calendar account", `SAyj8Ovli7hMCL9c` "Google
+  Drive account"). Trouvé en 2 passes : le premier fix de Drive a été vérifié par la revue
+  sécurité, qui a détecté que le fix de Calendar (fait par mimétisme du même pattern) référençait
+  toujours un ID inexistant des deux côtés (`01b` et `01c`) — corrigé après coup.
+
+**Résultat validé en direct** : `03→04→08→01→02` (génération de rapport) et `01b→01c` (réaction ✅
+simulée → approve → tentative de livraison) tournent maintenant de bout en bout sans lever
+`WorkflowHasIssuesError` ni planter. Testé et confirmé après chaque fix (réimport + restart n8n +
+nouveau draft + nouvelle simulation de réaction).
+
+**Reste bloqué, pas un bug de code** :
+- Credential Google Drive (`SAyj8Ovli7hMCL9c`) : erreur `"Unable to sign without access token"` —
+  le credential existe et est bien référencé mais n'a pas de token d'accès valide (jamais vraiment
+  connecté, ou refresh token expiré/révoqué). À reconnecter dans l'UI n8n.
+- Credential Gmail : **n'existe toujours pas du tout** (`gmailOAuth2`, zéro credential de ce type en
+  base) — `Send Gmail` échouera tant qu'il n'est pas créé, même après le fix du nom de champ.
+- Reject/Edit (`01b`) et F-06 Unblock Assistance n'ont pas encore été retestés après tous ces fixes
+  (seul le chemin Approve/report a été validé de bout en bout ce soir) — à faire en priorité la
+  prochaine session, avant tout autre travail.
+- Réactions Discord **réelles** (pas simulées) toujours pas retestées — le fix du unwrap `.body`
+  devrait les débloquer, mais ça reste à confirmer avec un vrai clic ✅ dans Discord.
+
+**Revue de sécurité adversariale** : deux passes. La première a confirmé les 6 premiers fixes sans
+finding critique mais a détecté que le fix Calendar référençait un ID de credential toujours
+inexistant (trouvé en interrogeant directement `credentials_entity`, pas juste la structure du
+JSON) — corrigé, puis retesté en direct (03→04→08→01→02 et 01b→01c toujours success après le
+fix). Gmail signalé comme même classe de problème restant (credential jamais créé), documenté
+ci-dessus, pas bloquant pour ce commit.
 
 ## Audit IF/Switch natifs 01/01b/01c complété — 2026-07-13
 
@@ -196,21 +270,27 @@ répété :
 Résultat : code plus solide qu'avant l'audit, mais toujours **zéro test end-to-end réel** — voir
 "État global" ci-dessous pour ce que ça veut dire concrètement.
 
-## Prochaine session — reprendre ici (mis à jour 2026-07-11)
+## Prochaine session — reprendre ici (mis à jour 2026-07-13 soir)
 
-Premier vrai test end-to-end du projet fait le 2026-07-11 (zéro test avant cette date). Résultat :
-`00`/`03`/`04` fonctionnent, premier draft client généré avec succès. Deux blocages restent :
+Session du 2026-07-13 : audit IF/Switch complété + premier test réel de `01b`/`01c`, qui a trouvé
+la vraie cause probable du bug des réactions Discord (voir section "Tests end-to-end 01b/01c" en
+haut du fichier). Priorités pour la prochaine session, dans l'ordre :
 
-1. **Priorité #1 — les réactions Discord (✅/❌/✏️) ne remontent pas jusqu'à `01b`.** Piste
-   trouvée en fin de session : Justin et son collègue partagent le même token de bot Discord sur
-   deux instances locales séparées — probablement la vraie cause (pas un bug de workflow). À
-   vérifier en premier : couper un des deux `discord-forwarder` et retester.
-2. **Priorité #2 — auditer les nodes IF natifs restants dans `01`/`01b`/`01c`** (voir note
-   technique en bas de fichier) — le bug de comparateur n8n 1.91.3 touche plus de types que prévu,
-   et ce chemin (approval gate + delivery) n'a jamais été vérifié pour ce pattern.
+1. **Priorité #1 — retester Reject/Edit (`01b`) et F-06 Unblock Assistance de bout en bout.** Seul
+   le chemin Approve (draft `report`) a été validé ce soir après tous les fixes. Le fix du unwrap
+   `.body` dans `Classify Event` s'applique à tous les chemins (reject/edit/F-06) mais n'a été
+   confirmé que pour approve — à vérifier explicitement avant de considérer `01b` fiable.
+2. **Priorité #2 — confirmer avec une vraie réaction Discord (pas simulée).** Le fix du unwrap
+   `.body` devrait débloquer les réactions ✅/✏️/❌ réelles — la théorie du token Discord partagé
+   du 2026-07-11 n'a probablement jamais été le vrai problème. À tester avant de toucher à quoi
+   que ce soit côté infra Discord (pas besoin de couper un `discord-forwarder`).
+3. **Priorité #3 — credentials Google restants** : reconnecter le credential Google Drive existant
+   (`Unable to sign without access token` — token expiré/jamais connecté) et créer un vrai
+   credential Gmail OAuth2 (n'existe pas du tout actuellement). Les deux bloquent la livraison
+   réelle (Drive/Gmail) même si tout le reste du pipeline fonctionne.
 
-Voir section "4. Tests end-to-end" et "5. Bugs trouvés le 2026-07-11" plus bas pour le détail
-complet. Credentials manquants (Clockify, GitHub, Jira) et sections 1-3 aussi mis à jour.
+Audit IF/Switch (2026-07-04→2026-07-13) : voir section dédiée pour le détail complet. Credentials
+manquants (Clockify, GitHub, Jira) et sections 1-3 plus bas aussi à jour.
 
 ## Ce qui est fait
 
@@ -384,9 +464,15 @@ Sans ces credentials, les workflows s'arrêtent à mi-chemin.
 - [ ] **Clockify** : `CLOCKIFY_WORKSPACE_ID` toujours vide au 2026-07-11 — **bloque visiblement**
       (par design) les workflows `10`, `11`, `12`, `01b`, `01c`
 - [x] **Ollama** : modèle `llama3.2` téléchargé
-- [ ] **Google OAuth** (workflow 09 — standup ingestion)
-  - App Google OAuth en mode "test" → ajouter les emails dans Audience
-  - Se connecter dans n8n → Credentials → Google Docs OAuth2
+- [ ] **Google OAuth** (workflow 09 — standup ingestion, + Drive/Gmail pour `01c`) — état détaillé
+      au 2026-07-13 soir :
+  - [x] **Google Drive** : credential existe (`Google Drive account`) mais **token d'accès
+        invalide** (`Unable to sign without access token`) — à reconnecter dans l'UI n8n
+  - [x] **Google Calendar** : credential créé ce soir (`Google Calendar account`), fonctionnel
+  - [ ] **Gmail** : credential **n'existe pas du tout** — à créer (Credentials → New → Gmail
+        OAuth2 API, même app Google que Drive/Calendar via `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`)
+  - [ ] **Google Docs** (workflow 09) : toujours pas configuré
+  - App Google OAuth en mode "test" → ajouter les emails dans Audience si pas déjà fait
 
 ### 2. Variables d'environnement post-import
 - [x] `F03_WORKFLOW_ID`, `F08_WORKFLOW_ID`, `F01_WORKFLOW_ID`, `F14_WORKFLOW_ID`,
