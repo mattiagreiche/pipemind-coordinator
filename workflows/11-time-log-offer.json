@@ -254,7 +254,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.system_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify(['timelog_last_run', $json.sc18_failsafe ? 'sc18_failsafe:' + new Date().toISOString() : 'no_contacts_needed:' + new Date().toISOString()]) }}"
+          "queryReplacement": "={{ [ 'timelog_last_run', $json.sc18_failsafe ? 'sc18_failsafe:' + new Date().toISOString() : 'no_contacts_needed:' + new Date().toISOString() ] }}"
         }
       }
     },
@@ -342,7 +342,7 @@
         "operation": "executeQuery",
         "query": "SELECT COALESCE(sr.feature_area, 'General') AS feature_area FROM (SELECT $1::text AS discord_id) base LEFT JOIN pipemind.standup_records sr ON sr.discord_id = base.discord_id AND sr.standup_date = CURRENT_DATE;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Split Into Action Items').item.json.discord_id]) }}"
+          "queryReplacement": "={{ [ $('Split Into Action Items').item.json.discord_id ] }}"
         }
       }
     },
@@ -518,7 +518,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.outreach_log (discord_id, outreach_type, outreach_date) VALUES ($1, 'time_log_offer', CURRENT_DATE) ON CONFLICT (discord_id, outreach_type, outreach_date) DO NOTHING;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Build Draft or Route').item.json.discord_id]) }}"
+          "queryReplacement": "={{ [ $('Build Draft or Route').item.json.discord_id ] }}"
         }
       }
     },
@@ -570,7 +570,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.approval_drafts (feature_tag, content_type, draft_text, boundary_audit_passed, approver_discord_id, discord_channel_id, context_json) VALUES ('F-07', 'time_entry', $1, TRUE, $2, $3, $4::jsonb) RETURNING draft_id, discord_channel_id;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Build Draft or Route').item.json.draft_text, $('Build Draft or Route').item.json.discord_id, $('Open Offer DM').item.json.id, JSON.stringify({ draft_hours: $('Build Draft or Route').item.json.draft_hours, feature_area: $('Build Draft or Route').item.json.feature_area })]) }}"
+          "queryReplacement": "={{ [ $('Build Draft or Route').item.json.draft_text, $('Build Draft or Route').item.json.discord_id, $('Open Offer DM').item.json.id, JSON.stringify({ draft_hours: $('Build Draft or Route').item.json.draft_hours, feature_area: $('Build Draft or Route').item.json.feature_area }) ] }}"
         }
       }
     },
@@ -621,7 +621,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.outreach_log (discord_id, outreach_type, outreach_date) VALUES ($1, 'time_log_offer', CURRENT_DATE) ON CONFLICT (discord_id, outreach_type, outreach_date) DO NOTHING;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Build Draft or Route').item.json.discord_id]) }}"
+          "queryReplacement": "={{ [ $('Build Draft or Route').item.json.discord_id ] }}"
         }
       }
     },
@@ -645,7 +645,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts SET discord_message_id = $1 WHERE draft_id = $2::uuid;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$json.id, $('Create Approval Draft').item.json.draft_id]) }}"
+          "queryReplacement": "={{ [ $json.id, $('Create Approval Draft').item.json.draft_id ] }}"
         }
       }
     },

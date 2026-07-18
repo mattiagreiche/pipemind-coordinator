@@ -254,7 +254,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.system_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify(['checkin_last_run', $json.sc18_failsafe ? 'sc18_failsafe:' + new Date().toISOString() : 'no_contacts_needed:' + new Date().toISOString()]) }}"
+          "queryReplacement": "={{ [ 'checkin_last_run', $json.sc18_failsafe ? 'sc18_failsafe:' + new Date().toISOString() : 'no_contacts_needed:' + new Date().toISOString() ] }}"
         }
       }
     },
@@ -424,7 +424,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.outreach_log (discord_id, outreach_type, outreach_date) VALUES ($1, 'check_in', CURRENT_DATE) ON CONFLICT (discord_id, outreach_type, outreach_date) DO NOTHING;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$json.discord_id]) }}"
+          "queryReplacement": "={{ [ $json.discord_id ] }}"
         }
       }
     }

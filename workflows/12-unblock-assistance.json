@@ -393,7 +393,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.unblock_offers (discord_id, offer_date, feature_area, blocker_source, status, dm_channel_id, offer_count) VALUES ($1, CURRENT_DATE, $2, $3, 'pending', $4, 1) ON CONFLICT (discord_id, offer_date, feature_area) DO NOTHING RETURNING offer_id, dm_channel_id;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Split Into Offer Items').item.json.discord_id, $('Split Into Offer Items').item.json.feature_area, $('Split Into Offer Items').item.json.blocker_source, $('Open DM Channel').item.json.id || null]) }}"
+          "queryReplacement": "={{ [ $('Split Into Offer Items').item.json.discord_id, $('Split Into Offer Items').item.json.feature_area, $('Split Into Offer Items').item.json.blocker_source, $('Open DM Channel').item.json.id || null ] }}"
         }
       }
     },
@@ -470,7 +470,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.unblock_offers SET status = 'dm_failed', updated_at = now() WHERE discord_id = $1 AND offer_date = CURRENT_DATE AND feature_area = $2;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Split Into Offer Items').item.json.discord_id, $('Split Into Offer Items').item.json.feature_area]) }}"
+          "queryReplacement": "={{ [ $('Split Into Offer Items').item.json.discord_id, $('Split Into Offer Items').item.json.feature_area ] }}"
         }
       }
     },
@@ -493,7 +493,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.outreach_log (discord_id, outreach_type, outreach_date) VALUES ($1, 'unblock_offer', CURRENT_DATE) ON CONFLICT (discord_id, outreach_type, outreach_date) DO NOTHING;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$json.discord_id]) }}"
+          "queryReplacement": "={{ [ $json.discord_id ] }}"
         }
       }
     },

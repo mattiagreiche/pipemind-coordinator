@@ -164,7 +164,7 @@
         "operation": "executeQuery",
         "query": "={{ $json.standup_query }}",
         "options": {
-          "queryReplacement": "={{ JSON.stringify($json.standup_params) }}"
+          "queryReplacement": "={{ $json.standup_params }}"
         }
       }
     },
@@ -233,7 +233,7 @@
         "operation": "executeQuery",
         "query": "={{ $json.signal_query }}",
         "options": {
-          "queryReplacement": "={{ JSON.stringify($json.signal_params) }}"
+          "queryReplacement": "={{ $json.signal_params }}"
         }
       }
     }

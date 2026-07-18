@@ -143,7 +143,7 @@
         "operation": "executeQuery",
         "query": "SELECT standup_date, raw_text, feature_area, has_blocker FROM pipemind.standup_records WHERE discord_id = $1 AND standup_date >= CURRENT_DATE - INTERVAL '7 days' ORDER BY standup_date DESC LIMIT 7;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
+          "queryReplacement": "={{ [ $('Validate Input').first().json.safe_caller_id ] }}"
         }
       },
       "alwaysOutputData": true
@@ -188,7 +188,7 @@
         "operation": "executeQuery",
         "query": "SELECT discord_id, role FROM pipemind.roster WHERE discord_id = $1 AND active = true;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Validate Input').item.json.safe_caller_id]) }}"
+          "queryReplacement": "={{ [ $('Validate Input').first().json.safe_caller_id ] }}"
         }
       },
       "alwaysOutputData": true

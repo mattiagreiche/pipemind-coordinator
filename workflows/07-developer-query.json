@@ -331,7 +331,7 @@
         "operation": "executeQuery",
         "query": "SELECT draft_id, discord_channel_id FROM pipemind.approval_drafts WHERE approver_discord_id = $1   AND content_type = 'time_entry'   AND status = 'pending'   AND created_at >= CURRENT_DATE::timestamptz   AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT 1;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Detect Approval Command').first().json.discord_id]) }}"
+          "queryReplacement": "={{ [ $('Detect Approval Command').first().json.discord_id ] }}"
         }
       }
     },
@@ -419,7 +419,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.approval_drafts SET status = $2, edited_text = $3 WHERE draft_id = $1::uuid AND status = 'pending' RETURNING draft_id;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$json.draft_id, $json.status, $json.edited_text]) }}"
+          "queryReplacement": "={{ [ $json.draft_id, $json.status, $json.edited_text ] }}"
         }
       }
     },
