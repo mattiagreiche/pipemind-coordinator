@@ -16,28 +16,6 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:0.6.8
-    restart: unless-stopped
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - pipemind-internal
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    # Uncomment for GPU support:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-
   n8n:
     image: n8nio/n8n:1.91.3
     restart: unless-stopped
@@ -101,10 +79,8 @@ services:
       ROSTER_CONFIG_PATH: /config/roster.json
       # Allow fs module in Code nodes (needed for Read Roster File)
       NODE_FUNCTION_ALLOW_BUILTIN: "fs"
-      # LLM endpoint (Ollama via OpenAI-compatible API — local only, SC-11)
-      LLM_BASE_URL: http://ollama:11434/v1
+      # LLM (Anthropic hosted API, SC-11 — replaces the retired local Ollama backend)
       LLM_MODEL: ${LLM_MODEL}
-      # Anthropic API (hosted LLM, SC-11 — intentional switch from Ollama)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     volumes:
       - n8n_data:/home/node/.n8n
@@ -113,8 +89,6 @@ services:
       - pipemind-internal
     depends_on:
       postgres:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
 
   discord-forwarder:
@@ -136,5 +110,4 @@ networks:
 
 volumes:
   postgres_data:
-  ollama_data:
   n8n_data:
