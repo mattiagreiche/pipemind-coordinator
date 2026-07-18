@@ -83,6 +83,9 @@ services:
       JIRA_TOKEN: ${JIRA_TOKEN}
       JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY}
       JIRA_AUTH: ${JIRA_AUTH}
+      TRELLO_KEY: ${TRELLO_KEY}
+      TRELLO_TOKEN: ${TRELLO_TOKEN}
+      TRELLO_BOARD_ID: ${TRELLO_BOARD_ID}
       CLOCKIFY_API_KEY: ${CLOCKIFY_API_KEY}
       CLOCKIFY_WORKSPACE_ID: ${CLOCKIFY_WORKSPACE_ID}
       # n8n workflow IDs (set after importing workflows into n8n)
