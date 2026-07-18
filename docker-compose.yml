@@ -104,6 +104,8 @@ services:
       # LLM endpoint (Ollama via OpenAI-compatible API — local only, SC-11)
       LLM_BASE_URL: http://ollama:11434/v1
       LLM_MODEL: ${LLM_MODEL}
+      # Anthropic API (hosted LLM, SC-11 — intentional switch from Ollama)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./config:/config:ro
