@@ -37,7 +37,7 @@
       "typeVersion": 2,
       "position": [220, 300],
       "parameters": {
-        "jsCode": "const hour = new Date().getUTCHours();\nconst start = parseInt($env.SYNC_WORKING_HOURS_START || '7', 10);\nconst end   = parseInt($env.SYNC_WORKING_HOURS_END   || '21', 10);\nconst isManual = !!($input.first().json.body || $input.first().json.manual);\nif (!isManual && (hour < start || hour >= end)) return [];\nreturn [{ json: { triggered_at: new Date().toISOString(), manual: isManual } }];"
+        "jsCode": "const hour = new Date().getUTCHours();\nconst start = parseInt($env.SYNC_WORKING_HOURS_START || '7', 10);\nconst end   = parseInt($env.SYNC_WORKING_HOURS_END   || '21', 10);\nconst isManual = !!($input.first().json.body || $input.first().json.manual);\nif (isManual) {\n  const secret = $env.SYNC_WEBHOOK_SECRET;\n  if (secret) {\n    const provided = ($input.first().json.headers || {})['x-sync-secret'] || '';\n    if (provided !== secret) throw new Error('F-18: Unauthorized — invalid or missing X-Sync-Secret header');\n  }\n}\nif (!isManual && (hour < start || hour >= end)) return [];\nreturn [{ json: { triggered_at: new Date().toISOString(), manual: isManual } }];"
       }
     },
     {
@@ -49,7 +49,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "GET",
-        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/projects?archived=false&page-size=50` }}",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/projects?archived=false&page-size=200` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -70,7 +70,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "GET",
-        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/users?page-size=50` }}",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/users?page-size=200` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
