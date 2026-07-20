@@ -57,13 +57,13 @@
       "position": [880, 300],
       "parameters": {
         "method": "POST",
-        "url": "=https://discord.com/api/v10/channels/{{ $env.TL_CHANNEL_ID }}/messages",
+        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
             },
             {
               "name": "Content-Type",
