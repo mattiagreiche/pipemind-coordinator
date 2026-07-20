@@ -1,0 +1,491 @@
+{
+  "name": "18 — F-18: Clockify Project & Assignment Sync",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 200],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "manual-webhook",
+      "name": "Manual Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 400],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clockify-sync-manual",
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "id": "check-working-hours",
+      "name": "Check Working Hours",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "parameters": {
+        "jsCode": "const hour = new Date().getUTCHours();\nconst start = parseInt($env.SYNC_WORKING_HOURS_START || '7', 10);\nconst end   = parseInt($env.SYNC_WORKING_HOURS_END   || '21', 10);\nconst isManual = !!($input.first().json.body || $input.first().json.manual);\nif (!isManual && (hour < start || hour >= end)) return [];\nreturn [{ json: { triggered_at: new Date().toISOString(), manual: isManual } }];"
+      }
+    },
+    {
+      "id": "fetch-clockify-projects",
+      "name": "Fetch Clockify Projects",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 200],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/projects?archived=false&page-size=50` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fetch-clockify-users",
+      "name": "Fetch Clockify Users",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 400],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/users?page-size=50` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.CLOCKIFY_API_KEY }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "validate-api-responses",
+      "name": "Validate API Responses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "parameters": {
+        "jsCode": "const projectsRaw = $('Fetch Clockify Projects').first().json;\nconst usersRaw = $('Fetch Clockify Users').first().json;\n\nconst projectsOk = Array.isArray(projectsRaw);\nconst usersOk = Array.isArray(usersRaw);\n\nif (!projectsOk || !usersOk) {\n  // Post warning to TL channel\n  const msg = !projectsOk && !usersOk\n    ? '[Pipemind] Clockify sync échoué — les deux endpoints Clockify sont indisponibles. La dernière image connue est conservée.'\n    : !projectsOk\n      ? '[Pipemind] Clockify sync échoué — endpoint projects indisponible.'\n      : '[Pipemind] Clockify sync échoué — endpoint users indisponible.';\n  try {\n    await $helpers.httpRequest({\n      method: 'POST',\n      url: `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages`,\n      headers: { 'Authorization': `Bot ${$env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },\n      body: JSON.stringify({ content: msg }),\n    });\n  } catch(e) { /* non-critical */ }\n  return [];\n}\n\n// Build users map: clockify_user_id -> { name, email }\nconst usersMap = {};\nfor (const u of usersRaw) {\n  usersMap[u.id] = { name: u.name, email: u.email };\n}\n\n// Normalize projects\nconst projects = projectsRaw.map(p => ({\n  clockify_project_id: p.id,\n  name: String(p.name || '').slice(0, 200),\n  client_name: p.clientName ? String(p.clientName).slice(0, 200) : null,\n  memberships: (p.memberships || [])\n    .filter(m => m.membershipStatus === 'ACTIVE')\n    .map(m => ({ clockify_user_id: m.userId })),\n}));\n\nreturn [{ json: { projects, users_map: usersMap } }];"
+      }
+    },
+    {
+      "id": "fetch-roster",
+      "name": "Fetch Roster",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 300],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT discord_id, clockify_user_id FROM pipemind.roster WHERE active = true AND clockify_user_id IS NOT NULL;"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "build-upsert-data",
+      "name": "Build Upsert Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "parameters": {
+        "jsCode": "const { projects, users_map } = $('Validate API Responses').first().json;\nconst rosterRows = $('Fetch Roster').all().map(i => i.json);\n\n// Build clockify_user_id -> discord_id map\nconst userToDiscord = {};\nfor (const r of rosterRows) {\n  if (r.clockify_user_id) userToDiscord[r.clockify_user_id] = r.discord_id;\n}\n\nconst triggeredAt = $('Check Working Hours').first().json.triggered_at;\nconst unmappedUserIds = new Set();\n\n// Build project upsert rows\nconst projectRows = projects.map(p => ({\n  id: p.clockify_project_id,\n  name: p.name,\n  client_name: p.client_name,\n}));\n\n// Build membership rows\nconst membershipRows = [];\nfor (const p of projects) {\n  for (const m of p.memberships) {\n    const discordId = userToDiscord[m.clockify_user_id] || null;\n    if (!discordId) unmappedUserIds.add(m.clockify_user_id);\n    membershipRows.push({\n      clockify_project_id: p.clockify_project_id,\n      clockify_user_id: m.clockify_user_id,\n      roster_discord_id: discordId,\n      is_unmapped: !discordId,\n    });\n  }\n}\n\n// Build project upsert SQL with parameterized values\nlet projectSql = 'SELECT 1;'; // no-op placeholder\nconst projectParams = [];\nif (projectRows.length > 0) {\n  const placeholders = projectRows.map((_, i) => {\n    const base = i * 3;\n    return `($${base+1}, $${base+2}, $${base+3}, true, now())`;\n  }).join(', ');\n  projectSql = `INSERT INTO pipemind.clockify_projects (clockify_project_id, name, client_name, is_active, last_synced_at)\\nVALUES ${placeholders}\\nON CONFLICT (clockify_project_id) DO UPDATE SET\\n  name = EXCLUDED.name,\\n  client_name = EXCLUDED.client_name,\\n  is_active = true,\\n  last_synced_at = EXCLUDED.last_synced_at,\\n  updated_at = now();`;\n  for (const r of projectRows) {\n    projectParams.push(r.id, r.name, r.client_name);\n  }\n}\n\n// Build membership upsert SQL\nlet membershipSql = 'SELECT 1;'; // no-op placeholder\nconst membershipParams = [];\nif (membershipRows.length > 0) {\n  const placeholders = membershipRows.map((_, i) => {\n    const base = i * 4;\n    return `($${base+1}, $${base+2}, $${base+3}, $${base+4}, true, now())`;\n  }).join(', ');\n  membershipSql = `INSERT INTO pipemind.project_memberships (clockify_project_id, clockify_user_id, roster_discord_id, is_unmapped, is_active, last_synced_at)\\nVALUES ${placeholders}\\nON CONFLICT (clockify_project_id, clockify_user_id) DO UPDATE SET\\n  roster_discord_id = EXCLUDED.roster_discord_id,\\n  is_unmapped = EXCLUDED.is_unmapped,\\n  is_active = true,\\n  last_synced_at = EXCLUDED.last_synced_at,\\n  updated_at = now();`;\n  for (const r of membershipRows) {\n    membershipParams.push(r.clockify_project_id, r.clockify_user_id, r.roster_discord_id, r.is_unmapped);\n  }\n}\n\nreturn [{ json: {\n  project_sql: projectSql,\n  project_params: projectParams,\n  membership_sql: membershipSql,\n  membership_params: membershipParams,\n  triggered_at: triggeredAt,\n  unmapped_user_ids: [...unmappedUserIds],\n  project_count: projectRows.length,\n} }];"
+      }
+    },
+    {
+      "id": "upsert-projects",
+      "name": "Upsert Projects",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 200],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.project_sql }}",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json.project_params) }}"
+        },
+        "alwaysOutputData": true
+      }
+    },
+    {
+      "id": "mark-inactive-projects",
+      "name": "Mark Inactive Projects",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 340],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.clockify_projects SET is_active = false, updated_at = now() WHERE is_active = true AND last_synced_at < $1::TIMESTAMPTZ;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Build Upsert Data').first().json.triggered_at]) }}"
+        }
+      }
+    },
+    {
+      "id": "upsert-memberships",
+      "name": "Upsert Memberships",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 480],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Build Upsert Data').first().json.membership_sql }}",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Build Upsert Data').first().json.membership_params) }}"
+        },
+        "alwaysOutputData": true
+      }
+    },
+    {
+      "id": "mark-inactive-memberships",
+      "name": "Mark Inactive Memberships",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 620],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipemind.project_memberships SET is_active = false, updated_at = now() WHERE is_active = true AND last_synced_at < $1::TIMESTAMPTZ;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Build Upsert Data').first().json.triggered_at]) }}"
+        }
+      }
+    },
+    {
+      "id": "detect-new-projects",
+      "name": "Detect New Projects",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 400],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cp.clockify_project_id, cp.name\nFROM pipemind.clockify_projects cp\nWHERE cp.first_seen_at >= $1::TIMESTAMPTZ\n  AND NOT EXISTS (\n    SELECT 1 FROM pipemind.project_repos pr\n    WHERE pr.clockify_project_id = cp.clockify_project_id\n  );",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Build Upsert Data').first().json.triggered_at]) }}"
+        },
+        "alwaysOutputData": true
+      }
+    },
+    {
+      "id": "flag-unmapped-users",
+      "name": "Flag Unmapped Users",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300],
+      "parameters": {
+        "jsCode": "const unmapped = $('Build Upsert Data').first().json.unmapped_user_ids || [];\nif (unmapped.length > 0) {\n  const list = unmapped.join(', ');\n  try {\n    await $helpers.httpRequest({\n      method: 'POST',\n      url: `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages`,\n      headers: { 'Authorization': `Bot ${$env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },\n      body: JSON.stringify({ content: `[Pipemind] Sync Clockify : les identifiants suivants n'ont pas de correspondance dans le roster et ne peuvent pas être contactés : ${list}. Veuillez mettre à jour le roster.` }),\n    });\n  } catch(e) { /* non-critical */ }\n}\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "split-new-projects",
+      "name": "Split New Projects",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [2000, 400],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "call-f19",
+      "name": "Call F-19",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2220, 400],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $env.F19_WORKFLOW_ID }}",
+          "mode": "id"
+        },
+        "waitForSubWorkflow": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "update-sync-timestamp",
+      "name": "Update Sync Timestamp",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2440, 300],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.system_state (key, value) VALUES ('clockify_last_sync', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify([$('Build Upsert Data').first().json.triggered_at]) }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Working Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Working Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Working Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Clockify Projects",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Clockify Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Clockify Projects": {
+      "main": [
+        [
+          {
+            "node": "Validate API Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Clockify Users": {
+      "main": [
+        [
+          {
+            "node": "Validate API Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate API Responses": {
+      "main": [
+        [
+          {
+            "node": "Fetch Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Roster": {
+      "main": [
+        [
+          {
+            "node": "Build Upsert Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Upsert Data": {
+      "main": [
+        [
+          {
+            "node": "Upsert Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Projects": {
+      "main": [
+        [
+          {
+            "node": "Mark Inactive Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Inactive Projects": {
+      "main": [
+        [
+          {
+            "node": "Upsert Memberships",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Memberships": {
+      "main": [
+        [
+          {
+            "node": "Mark Inactive Memberships",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Inactive Memberships": {
+      "main": [
+        [
+          {
+            "node": "Detect New Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect New Projects": {
+      "main": [
+        [
+          {
+            "node": "Flag Unmapped Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag Unmapped Users": {
+      "main": [
+        [
+          {
+            "node": "Split New Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split New Projects": {
+      "main": [
+        [
+          {
+            "node": "Call F-19",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Sync Timestamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call F-19": {
+      "main": [
+        [
+          {
+            "node": "Update Sync Timestamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "clockify-sync"
+    },
+    {
+      "name": "p1"
+    }
+  ],
+  "id": "Kx9mP2nQrT4vW7yZ"
+}
