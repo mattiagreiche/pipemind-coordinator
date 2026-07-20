@@ -6,7 +6,9 @@
 **Status:** REVIEWED — implementation substantially complete (P0, P1, and F-06 beyond-P1 built).
 See Resolved Questions and Assumptions below for decisions made during implementation that
 narrowed this spec's remaining ambiguity.
-**Last reviewed:** 2026-07-05
+**Last reviewed:** 2026-07-20 — P1 extension added: Clockify becomes the authoritative source for
+projects and assignments (Jira removed); new features F-18 (project sync), F-19 (project-repository
+linking), F-20 (capacity/bandwidth query). Open `[ASSUMPTION]` tags on these await refinement.
 
 ---
 
@@ -45,11 +47,13 @@ The five governing rules (binding on every feature):
 - **SC-14**: Persistent memory (project picture, assignments, recent questions/outreach) is the only place individual-derived state is retained, and it remains subject to SC-03/SC-04 when surfaced. [Memory store mandated by source; Phase 1.]
 - **SC-15**: If a behavior would amount to surveillance or individual scoring, it must not be built; the ambiguity is escalated to the human lead rather than resolved by the agent.
 - **SC-16**: Report delivery targets (Drive folder and Client Gmail address) are required deployment-time configuration values. The spec does not hard-code them; downstream agents must surface them as required config and the system must fail visibly at startup if they are absent.
-- **SC-17**: GitHub and a ticket tracker (Trello for Developer queries/F-17; Jira for Client reports/F-01 and Client Q&A/F-02, currently unconfigured/dead in practice) are queried as supplementary context only at the moment a report is drafted, a Client question is answered, or a Developer asks about project status — not on a background schedule. Extraction is limited to feature-level activity hints: which features have recent activity, open/closed ticket counts by feature, and blocked or stale PRs. No individual developer attribution may be extracted from these sources for any purpose.
+- **SC-17**: Version-control activity is queried as supplementary context only, and only at the moment a report is drafted or a Client question is answered — not as a background progress-tracking schedule. A project may have one or more repositories linked to it (F-19); all linked repositories are treated as supplementary. Extraction is limited to feature-level activity hints: which features have recent activity, and blocked or stale changes. No individual developer attribution may be extracted from these sources for any purpose. Issue-tracker (Jira) integration is removed from scope; the time-tracking system, not an issue tracker, is the source of project and assignment data (SC-19). Routine commit-based progress checking is a future consideration and is not in scope this milestone (pending repository-access provisioning — see F-19).
 - **SC-18**: Scheduled-to-work status is evaluated live (on-demand) each time a feature needs it, by querying Clockify and Google Calendar at that moment. There is no daily cached snapshot; every check reflects the current state of both sources. Resilience rule: if one source is unavailable, the agent proceeds using the other source alone. If both sources are unavailable, the agent treats the person as not scheduled (fail-safe: no contact, no time-logging offer) and logs the failure for visibility.
-- **SC-19**: The active team roster (who is on the team, their names, and their Discord user identities) is maintained as a configuration file in the project repository. Clockify provides schedule and leave data; Jira provides feature/ticket assignment. The roster config is the authoritative source for who the agent knows about. The agent must fail visibly if the roster config is absent or unparseable at startup.
-- **SC-20**: Bot account compromise and Discord channel impersonation are out of scope for this milestone. The system relies on Discord's permission model and 1Password-secured bot credentials. This is acknowledged as a residual risk. Similarly, Trello's REST API for the F-17 supplementary signal (workflow 07) requires the API key/token as URL query parameters rather than a header — combined with n8n's default (unpruned) execution-data retention, the credential is retained indefinitely in the execution history, visible to anyone with n8n editor access. Mitigated by scoping the Trello token to read-only access; not otherwise addressed in this milestone. Acknowledged as a residual risk.
+- **SC-19**: The active team roster (who is on the team, their names, their Discord user identities, and the mapping from each person to their time-tracking user identity) is maintained as authoritative configuration. The roster is the authoritative source for who the agent knows about and how to reach them. The time-tracking system (Clockify) is the authoritative source for schedule and leave data, and for the set of active projects and who is assigned to each (F-18). There is no issue-tracker (Jira) assignment source. The agent must fail visibly if the roster is absent or unparseable at startup.
+- **SC-20**: Bot account compromise and Discord channel impersonation are out of scope for this milestone. The system relies on Discord's permission model and 1Password-secured bot credentials. This is acknowledged as a residual risk.
 - **SC-21**: All outbound delivery operations (Drive save, Gmail send, Discord post, Clockify write) must be idempotent with respect to retries. A single approved action must never result in a duplicate email sent, duplicate file saved, or duplicate time entry logged, even if the operation is retried after a partial failure.
+- **SC-22**: The set of active projects and their assignments is synced from the time-tracking system into persistent memory on a schedule (F-18), rather than derived transiently. This synced project/assignment data is internal state and remains fully subject to the aggregation boundary (F-08) whenever it is surfaced upward: never named to the Client, and only work-area-level (never named) to the Team Lead. The sync is read-only and produces no outbound or irreversible action.
+- **SC-23**: Capacity/bandwidth information consists of hours logged in the time-tracking system, a person's current project commitments, and their scheduling availability (time-off / working days). It is disclosable to the Team Lead (about any team member) and to a Developer about themselves only; the Client never receives it. Logged hours are explicitly **not** a measure of actual work performed — the agent must present them as a rough, secondary detail, caveat that they reflect only what was logged, and never treat them as an exact or authoritative figure. The agent reports the figures and availability and lets the asker draw their own conclusion; it does not itself rank people, compare them, declare who "has bandwidth", or classify anyone as "behind" (SC-04, SC-05).
 
 ---
 
@@ -129,7 +133,8 @@ Client questions are received and answered via Discord (the central comms channe
 **Implementation notes (resolved during build, 2026-07-05 — see RQ-S22/RQ-S23):**
 - *Identifying "the right teammate" (F-02.2)*: resolved via the primary signal, not a
   supplementary one — the most recently active person on the question's feature area per standup
-  records. Never resolved via Jira assignee data, which SC-17 forbids extracting for any purpose.
+  records. Not resolved via project-assignment membership: assignment indicates who is on a project,
+  not who most recently worked the specific area in question, so the primary signal governs here.
   If no feature area can be identified from the question, or no one has recent standup activity
   on it, this counts as "no teammate identified" and falls through to F-02.3's holding response.
 - *"Within 2 hours ... within the same working day" (F-02.3)*: resolved as
@@ -287,8 +292,8 @@ End-of-day is defined as a configurable fixed time per deployment (e.g. 5 pm). A
 
 **F-07.1: Draft an end-of-day timesheet and offer it (happy path)**
 - **GIVEN** the configured EOD time arrives and a person was scheduled to work and has not yet logged time today
-- **WHEN** the agent assembles the day's signals for that person
-- **THEN** it drafts a probable time entry and sends it to the person's Discord DM for approval, editing, or discard via F-03
+- **WHEN** the agent assembles the day's signals for that person, including the projects they are currently assigned to (per the synced project/assignment picture, F-18)
+- **THEN** it drafts a probable time entry — allocated against the person's assigned project(s) where the day's signals allow — and sends it to the person's Discord DM for approval, editing, or discard via F-03
 
 **F-07.2: Person approves the entry**
 - **GIVEN** a drafted time entry
@@ -402,7 +407,7 @@ The database-backed memory store that gives the agent continuity between runs. R
 **F-14.6: Day-1 bootstrapping — memory empty on first run (edge case)**
 - **GIVEN** the agent has no project memory (first deployment or fresh reset) and is asked to draft a report or answer a Client question
 - **WHEN** it has no standup data yet
-- **THEN** it uses only the available supplementary signals (GitHub, and Trello or Jira depending on the workflow — see SC-17) to construct the initial project picture, explicitly states in the draft that no standup data is available yet, and drafts honestly with what it has; it does not block or error, and does not fabricate standup-derived context
+- **THEN** it uses only the available supplementary signals (version-control activity, where a repository is linked) plus the synced project/assignment picture to construct the initial project picture, explicitly states in the draft that no standup data is available yet, and drafts honestly with what it has; it does not block or error, and does not fabricate standup-derived context
 
 ---
 
@@ -493,6 +498,134 @@ When the Client is first added to the designated Discord channel, the agent send
 
 ---
 
+### F-18: Clockify Project & Assignment Sync | SHOULD | P1
+
+**Requires:** F-14 (Persistent Memory)
+
+A background sync that keeps the agent's picture of active projects and who is assigned to each current. It is read-only, produces no outbound or irreversible action, and requires no approval. It runs on a configurable schedule during working hours and on-demand when the Team Lead requests a refresh. This is the agent's authoritative source for project existence and assignment (per SC-19), replacing assignment transiently inferred from standup activity.
+
+**F-18.1: Routine sync refreshes projects and memberships (happy path)**
+- **GIVEN** the configured sync interval elapses
+- **WHEN** the agent queries the time-tracking system for active projects and their assigned members
+- **THEN** persistent memory is updated to reflect the current set of active projects, each project's client, and its current assignments; superseded project/assignment state is updated accordingly
+
+**F-18.2: New project detected (triggers linking)**
+- **GIVEN** a sync run finds an active project not previously known to the agent
+- **WHEN** the sync completes
+- **THEN** the new project is recorded and the project-repository linking flow (F-19) is initiated for it
+
+**F-18.3: Membership change on an existing project**
+- **GIVEN** a sync run finds that a project's assigned members have changed since the last sync
+- **WHEN** the sync completes
+- **THEN** the stored assignment for that project is updated to match; no upward notification naming individuals is produced (assignment changes remain internal, subject to F-08)
+
+**F-18.4: Project archived or removed (retention)**
+- **GIVEN** a project previously known to the agent no longer appears among active projects
+- **WHEN** the sync completes
+- **THEN** the agent marks that project inactive, stops treating its assignments as active, and does not initiate outreach on its behalf; historical records are retained (consistent with F-14.4)
+
+**F-18.5: Assigned member not on the roster (unresolvable identity)**
+- **GIVEN** a project assignment references a time-tracking user identity that does not map to any roster member
+- **WHEN** the sync processes that project
+- **THEN** the agent records the assignment at project level but does not treat the unknown identity as a contactable person, and flags the unmapped identity to the Team Lead so the roster can be reconciled
+
+**F-18.6: Time-tracking source unavailable during sync (external dependency failure)**
+- **GIVEN** the configured sync interval elapses
+- **WHEN** the time-tracking system cannot be reached
+- **THEN** the agent retains the last known project/assignment picture, does not treat any project as removed, logs the failure for visibility, and retries on the next interval
+
+**F-18.7: No changes since last sync (idempotency / low-noise)**
+- **GIVEN** a sync run finds the active projects and assignments identical to the stored picture
+- **WHEN** the sync completes
+- **THEN** no change is written beyond a sync timestamp and no notifications are produced
+
+**Frequency** *[ASSUMPTION]*: configurable sync interval, defaulting to every 2 hours during configured working hours; also manually triggerable by the Team Lead.
+
+---
+
+### F-19: Project-Repository Linking | SHOULD | P1
+
+**Requires:** F-18 (Project Sync)
+
+When a new project is detected (F-18.2), the agent asks the Team Lead to supply the version-control repository (or repositories) for that project so its activity can later be tracked as a supplementary signal. The request is posted to the Team Lead approval channel. Storing a link is not itself an outbound/irreversible action; the request is an internal prompt to the Team Lead and does not gate any client-facing content.
+
+**Scope note** *[ASSUMPTION]*: this feature covers detection, request, and storage of the project→repository mapping only. Reading a linked repository's commits/activity for progress tracking is out of scope this milestone, pending resolution of how the agent is granted access to private repositories. First-run behavior against the already-existing project set is deferred: initial project→repository links may instead be seeded directly by the operator once repository access is available, rather than requested one-by-one (F-19.1). Internal (non-client) projects follow the same path — the request may be issued and declined (F-19.3), and such projects may be linked to a repository in future.
+
+**F-19.1: Agent requests a repository for a new project (happy path)**
+- **GIVEN** a newly detected project with no repository linked and not marked as intentionally unlinked
+- **WHEN** the agent processes the detection
+- **THEN** it posts a single message to the Team Lead approval channel naming the project and asking for its repository reference; the Team Lead supplies the link as natural language in the same channel (e.g. "link Expresso to github.com/pipemind/expresso"), which the Team Lead interaction surface (F-16 / workflow 03) classifies as a link-project intent and routes to the storage logic
+
+**F-19.2: Team Lead supplies a repository reference**
+- **GIVEN** an outstanding repository request for a project
+- **WHEN** the Team Lead replies with a repository reference
+- **THEN** the agent stores the association between the project and that repository and confirms the link in the same channel
+
+**F-19.3: Project has no repository (Team Lead declines)**
+- **GIVEN** an outstanding repository request
+- **WHEN** the Team Lead indicates the project has no associated repository (e.g. a non-development or internal project)
+- **THEN** the agent records the project as intentionally unlinked and does not ask again for that project
+
+**F-19.4: Multiple repositories for one project**
+- **GIVEN** a project that spans more than one repository
+- **WHEN** the Team Lead supplies more than one repository reference
+- **THEN** the agent stores all supplied repositories against that project
+
+**F-19.5: Request goes unanswered (low-noise)**
+- **GIVEN** a repository request the Team Lead has not acted on
+- **WHEN** time passes
+- **THEN** the agent does not repeatedly re-prompt; it may surface the still-unlinked project at most once in a periodic summary *[ASSUMPTION]*, and never blocks other features on the missing link
+
+**F-19.6: Supplied reference is invalid or inaccessible (edge case)**
+- **GIVEN** the Team Lead supplies a repository reference the agent cannot recognize as valid
+- **WHEN** the agent attempts to store it
+- **THEN** it does not store an unusable link, surfaces the problem to the Team Lead, and leaves the project unlinked pending a corrected reference
+
+**F-19.7: Duplicate link request (idempotency)**
+- **GIVEN** a project that already has a repository linked or was marked intentionally unlinked
+- **WHEN** a subsequent sync re-encounters the project
+- **THEN** no new linking request is issued
+
+---
+
+### F-20: Team Capacity & Bandwidth Query | SHOULD | P1
+
+**Requires:** F-18 (Project Sync)
+
+The Team Lead asks the agent about a person's or a group's availability for planning purposes — e.g. before assigning a new project. The agent reports the person's hours logged in the time-tracking system, their current project commitments, and their scheduling availability (time-off / working days), and lets the asker judge whether there is room. Logged hours are presented as a rough, secondary detail — never as an exact measure of work performed. This is a scheduling aid, not a performance or productivity measure, and is governed by SC-23. No approval gate is required for an informational reply that stays within the requesting person's own channel or DM.
+
+**F-20.1: Capacity check for named people before assignment (happy path)**
+- **GIVEN** the Team Lead asks whether specific people have bandwidth for new work
+- **WHEN** the agent evaluates each named person
+- **THEN** it reports, per person, their current project commitments, hours logged in the recent period (with the caveat that logged hours do not measure actual work done), and scheduling availability accounting for time-off — and lets the Team Lead judge; it does not rank the people, compare them, or itself declare who "has bandwidth"
+
+**F-20.2: Hours logged question**
+- **GIVEN** the Team Lead asks how many hours a person has logged
+- **WHEN** the agent responds
+- **THEN** it reports that person's logged hours for the rolling 7-day period ending now as a rough figure, explicitly noting the number reflects only what was logged and not actual work performed, with no performance characterisation; the rolling 7-day window is used consistently regardless of calendar week boundaries
+
+**F-20.3: Wrong actor asks (authorization)**
+- **GIVEN** a capacity/bandwidth question from someone other than the Team Lead
+- **WHEN** the agent receives it
+- **THEN** it does not disclose any other individual's hours or commitments; a Developer asking about their own capacity receives only their own figures; the Client receives nothing
+
+**F-20.4: Question would become a performance comparison (boundary enforcement)**
+- **GIVEN** a capacity question phrased as or tending toward ranking/comparison (e.g. "who is the least busy", "who is slacking")
+- **WHEN** the agent responds
+- **THEN** it provides only the neutral per-person availability facts needed for scheduling and does not produce a ranking, score, or performance judgement (SC-04)
+
+**F-20.5: Time-tracking source unavailable (external dependency failure)**
+- **GIVEN** a capacity question
+- **WHEN** the time-tracking system cannot be reached
+- **THEN** the agent reports that current capacity data is unavailable rather than guessing, and surfaces the failure
+
+**F-20.6: Person not on the roster / unknown (edge case)**
+- **GIVEN** a capacity question about someone not on the active roster
+- **WHEN** the agent evaluates it
+- **THEN** it states it has no capacity data for that person rather than fabricating one
+
+---
+
 ### F-09: Multi-Agent Orchestration | WON'T (this milestone)
 
 Explicitly out of scope per the source. Downstream agents must not build multi-agent setups now.
@@ -520,6 +653,15 @@ No blocking open questions remain. The items below are noted for future mileston
   count (e.g. "X of Y active team members currently muted") would be consistent with SC-04 (it's
   a count, not a list of who) and could serve as a lightweight self-awareness signal. Not scoped
   or built; worth considering for a future milestone.
+- **OQ-12**: F-18 sync frequency is assumed at every 2 hours during working hours plus manual
+  Team Lead trigger. The concrete interval and working-hours window are deployment config to be
+  confirmed; event-driven sync (if the time-tracking system supports change notifications) is a
+  possible future refinement over polling.
+- **OQ-13**: F-19 first-run behavior against the ~35 already-existing projects is deferred. The
+  operator expects to seed initial project→repository links directly (by name, via direct
+  repository access) once that access is provisioned, rather than have the agent issue a request
+  per pre-existing project. The steady-state per-new-project request flow (F-19.1) still applies
+  to projects created after go-live. Revisit once repository-access provisioning is decided.
 
 ## Resolved Questions
 - **RQ-01** *(was OQ-01)*: Client-facing content is always approved by the Team Lead. → A-01 resolved.
@@ -553,7 +695,11 @@ No blocking open questions remain. The items below are noted for future mileston
 - **RQ-S22** *(teammate identification, was part of F-02.2's ambiguity)*: The right teammate is identified via the primary signal — most recently active person on the question's feature area per standup records — never via Jira assignee data (SC-17). See F-02.2 implementation notes.
 - **RQ-S23** *(F-02.3 deadline computation)*: "2 hours, same working day" is computed as `min(asked_at + 2 hours, end-of-day config time same calendar day)`. See F-02.3 implementation notes.
 - **RQ-S24** *(was OQ-08)*: No hard cap on re-offers is implemented for F-06. The existing per-person/per-day/per-feature-area uniqueness on unblock offers already prevents same-day duplicate offers, and mute (SC-12) is the person's explicit, human-controlled opt-out from further outreach entirely — judged sufficient rather than building separate cross-day backoff tracking. → OQ-08 resolved.
-- **RQ-S25** *(was A-12)*: No distinction is made between Team-Lead-visible and Developer-visible roster/assignment queries — a Developer asking who is assigned to a work area gets the same treatment as anyone else: feature-area status without naming any individual. This system does not track area-to-person assignment as roster data at all (assignment is only ever inferred transiently from recent standup activity), so there was no narrower distinction to make. → A-12 resolved.
+- **RQ-S25** *(was A-12)*: No distinction is made between Team-Lead-visible and Developer-visible roster/assignment queries — a Developer asking who is assigned to a work area gets the same treatment as anyone else: feature-area status without naming any individual. This system does not track area-to-person assignment as roster data at all (assignment is only ever inferred transiently from recent standup activity), so there was no narrower distinction to make. → A-12 resolved. *(Superseded in part by RQ-S28: assignment IS now tracked authoritatively via the time-tracking sync (F-18), but it remains subject to F-08 when surfaced upward — the "no naming individuals to Lead or Client" outcome is unchanged.)*
+- **RQ-S26** *(capacity access & framing, F-20/SC-23)*: Capacity/bandwidth is disclosable to the Team Lead about any member, and to a Developer about themselves; never to the Client. It consists of hours logged in the time-tracking system (a rough detail, explicitly not a measure of work performed), current project commitments, and scheduling availability. The agent reports figures and availability and lets the asker judge; it never ranks, compares, computes a "has bandwidth" verdict, or calls anyone "behind". → SC-23 / F-20.
+- **RQ-S27** *(capacity basis, F-20)*: No fixed per-person weekly-hours target is assumed (logging habits vary). The agent presents raw logged hours (rolling 7-day window) plus availability rather than computing a capacity percentage or verdict. → F-20.1 / F-20.2.
+- **RQ-S29** *(F-19 repo-link reply mechanism)*: The Team Lead supplies a repository link as natural language in the Team Lead approval channel; the existing Team Lead interaction surface (F-16 / workflow 03) classifies it as a link-project intent and routes to storage. No separate reply-to-message mechanism is introduced. → F-19.1.
+- **RQ-S28** *(project & assignment source, F-18/F-19; SC-17/SC-19)*: The time-tracking system (Clockify) is the authoritative source for the set of active projects and who is assigned to each, synced to persistent memory on a schedule; the issue tracker (Jira) is removed from scope. All active projects are synced regardless of client (including internal projects). The repository-linking request (F-19) may be issued for any project and declined for those with no repository. → SC-17, SC-19, SC-22, F-18, F-19.
 
 ## Assumptions
 All assumptions are resolved. A-12 (Developer asking who is assigned to a work area) was resolved

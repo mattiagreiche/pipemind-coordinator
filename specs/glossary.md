@@ -6,7 +6,8 @@ Single source of truth for vocabulary across all Coordination Agent specs. When 
 
 **Developer** *(also: Team Member, Owner)*
 An individual contributor on the software team. Receives only help-oriented, private messages from the agent. Approves anything the agent proposes to do on their behalf (e.g. a time entry).
-*Cannot:* be scored, ranked, or reported on as an individual; have their individual-level signals (commits, hours, ticket activity, standup content) surfaced to the Team Lead or Client; be messaged by the agent when not scheduled to work; have any action taken on their behalf without their explicit approval.
+*Cannot:* be scored, ranked, or reported on as an individual; have their individual-level progress signals (commits, standup content, characterisations of their output) surfaced to the Team Lead or Client; be messaged by the agent when not scheduled to work; have any action taken on their behalf without their explicit approval.
+*Sole exception (see Capacity / bandwidth, SC-23, F-20):* hours logged in the time-tracking system, current project commitments, and scheduling availability may be surfaced to the Team Lead (or to the person about themselves) as a rough planning detail. Logged hours are never presented as a measure of actual work done, never ranked or compared, and never a basis for calling anyone "behind."
 
 **Team Lead**
 Oversees the software team and is the human accountable for client-facing communications.
@@ -27,7 +28,7 @@ The automated assistant that drafts updates, answers questions, offers help, ing
 ## Key Terms
 
 **Team roster config**
-A configuration file in the project repository that lists every active team member by name and Discord identity. This is the agent's authoritative source for who it knows about. Clockify provides schedule and leave data; Jira provides feature/ticket assignments. The roster config must be kept current by the Team Lead when the team changes.
+The authoritative record that lists every active team member by name, Discord identity, and the mapping from that person to their time-tracking (Clockify) user identity. This is the agent's authoritative source for who it knows about and how to reach them. The time-tracking system (Clockify) provides schedule and leave data and the authoritative set of active projects and who is assigned to each; there is no issue-tracker (Jira) source. The roster must be kept current by the Team Lead when the team changes.
 
 **Scheduled to work**
 A determination made by querying Clockify (assignments and time-off) and Google Calendar (OOO events) live at the moment the check is needed. A person on leave, assigned away, or showing an OOO calendar event is *not* scheduled. If either source marks them unavailable, the stricter result wins. The agent never initiates contact with a person who is not scheduled to work.
@@ -39,7 +40,7 @@ The text of the team's daily standup, supplied as a file dropped into a watched 
 What a person reports about their own work — via standup or a direct check-in. The most trusted signal about progress.
 
 **Primary signal vs. supplementary signal**
-Primary signal = what people say (standup, check-ins). Supplementary signal = activity data from version control, issue tracking, and time tracking. Supplementary signals are hints only; they are never treated as ground truth and never on their own define whether work is "behind."
+Primary signal = what people say (standup, check-ins). Supplementary signal = activity data from version control and time tracking. (Issue-tracker data is no longer a source — see Team roster config.) Supplementary signals are hints only; they are never treated as ground truth and never on their own define whether work is "behind."
 
 **Blocker / stuck**
 A condition, inferred primarily from what a person says, that a piece of work appears unable to progress. Low commit count or low logged hours alone never constitute a blocker.
@@ -82,3 +83,15 @@ A user-controllable setting that suppresses the agent's outreach to that person.
 
 **Outbound/irreversible action**
 Any effect visible outside the system: sending an email, posting a message, logging time, creating a calendar event. All such actions are draft-first and human-approved. None are ever auto-sent.
+
+**Clockify project**
+A unit of client work tracked in the time-tracking system, with a name, an associated client, and a set of assigned members. The authoritative source for what projects exist and who is assigned to each. Synced into persistent memory on a schedule (F-18).
+
+**Project membership / assignment**
+The set of team members assigned to a given Clockify project. This is the authoritative assignment source, replacing assignment transiently inferred from standup activity. When surfaced upward it remains subject to the aggregation boundary — never named to the Client, and only work-area-level to the Team Lead.
+
+**Project-repository link**
+A stored association between a Clockify project and one or more version-control repositories, established when the Team Lead supplies the repository reference in response to the agent's request (F-19). A project may be intentionally marked as having no repository. Reading a linked repository's activity for progress tracking is out of scope for this milestone (pending repository-access provisioning).
+
+**Capacity / bandwidth**
+The information the agent surfaces to support scheduling decisions (F-20): hours logged in the time-tracking system, a person's current project commitments, and their scheduling availability (time-off / working days). Logged hours are a rough, secondary detail — explicitly not a measure of actual work performed. The agent presents figures and availability and lets the asker judge; it never computes a capacity verdict, ranks or compares people, or calls anyone "behind."
