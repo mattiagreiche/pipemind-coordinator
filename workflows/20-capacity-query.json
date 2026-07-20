@@ -306,11 +306,6 @@
             "node": "Fetch Roster",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Fetch Project Memberships",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -319,7 +314,7 @@
       "main": [
         [
           {
-            "node": "Identify Target People",
+            "node": "Fetch Project Memberships",
             "type": "main",
             "index": 0
           }
