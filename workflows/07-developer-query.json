@@ -309,7 +309,7 @@
         450
       ],
       "parameters": {
-        "jsCode": "const msg = $('Verify Developer').first().json;\nconst content = String(msg.content || '').trim();\nconst discordId = String(msg.author_id || '');\nconst channelId = String(msg.channel_id || '');\n\n// SC-13: explain what the agent does / what data it used — checked first so it isn't\n// misrouted into the generic project-status query path.\nconst contentNorm = content.toLowerCase();\nconst explainKeywords = ['explain', 'what do you do', 'how do you work', 'what data', 'why did you', 'what did you use'];\nconst isExplainRequest = explainKeywords.some(kw => contentNorm.includes(kw));\n\n// Detect F-07 time-entry approval commands only\nconst isYes = /^yes$/i.test(content);\nconst isNo  = /^no$/i.test(content);\nconst editMatch = content.match(/^edit\\s+(\\d+(?:\\.\\d+)?)\\s*h(?:ours?)?$/i);\nconst isEdit = !!editMatch && (() => {\n  const h = parseFloat(editMatch[1]);\n  return h > 0 && h <= 16;\n})();\n\nconst isApprovalCmd = !isExplainRequest && (isYes || isNo || isEdit);\nconst editedText = isEdit ? content : null;\n\nreturn [{ json: {\n  is_explain_request: isExplainRequest,\n  is_approval_cmd: isApprovalCmd,\n  cmd:             isYes ? 'yes' : isNo ? 'no' : isEdit ? 'edit' : null,\n  edited_text:     editedText,\n  discord_id:      discordId,\n  channel_id:      channelId,\n  content\n} }];"
+        "jsCode": "const msg = $('Verify Developer').first().json;\nconst content = String(msg.content || '').trim();\nconst discordId = String(msg.author_id || '');\nconst channelId = String(msg.channel_id || '');\n\n// SC-13: explain what the agent does / what data it used — checked first so it isn't\n// misrouted into the generic project-status query path.\nconst contentNorm = content.toLowerCase();\nconst explainKeywords = ['explain', 'what do you do', 'how do you work', 'what data', 'why did you', 'what did you use'];\nconst isExplainRequest = explainKeywords.some(kw => contentNorm.includes(kw));\n\n// Detect F-07 time-entry approval commands only\nconst isYes = /^yes$/i.test(content);\nconst isNo  = /^no$/i.test(content);\nconst editMatch = content.match(/^edit\\s+(\\d+(?:\\.\\d+)?)\\s*h(?:ours?)?$/i);\nconst isEdit = !!editMatch && (() => {\n  const h = parseFloat(editMatch[1]);\n  return h > 0 && h <= 16;\n})();\n\nconst isApprovalCmd = !isExplainRequest && (isYes || isNo || isEdit);\nconst editedText = isEdit ? content : null;\n\n// F-20: capacity/bandwidth self-query (developer asking about their own availability)\nconst capacityKeywords = ['bandwidth', 'capacity', 'disponib', 'heures', 'hours',\n                          'available', 'dispo', 'charge', 'workload', 'occupe', 'occupé', 'libre'];\nconst isCapacityQuery = !isExplainRequest && !isYes && !isNo && !isEdit\n  && capacityKeywords.some(kw => contentNorm.includes(kw));\n\nreturn [{ json: {\n  is_explain_request: isExplainRequest,\n  is_approval_cmd: isApprovalCmd,\n  is_capacity_query: isCapacityQuery,\n  cmd:             isYes ? 'yes' : isNo ? 'no' : isEdit ? 'edit' : null,\n  edited_text:     editedText,\n  discord_id:      discordId,\n  channel_id:      channelId,\n  content\n} }];"
       }
     },
     {
@@ -654,7 +654,7 @@
         600
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nif (j.is_explain_request === true) return [];\nif (j.is_approval_cmd === true) return [];\nreturn $input.all();"
+        "jsCode": "if ($json.is_capacity_query === true) return [];\nconst j = $input.first().json;\nif (j.is_explain_request === true) return [];\nif (j.is_approval_cmd === true) return [];\nreturn $input.all();"
       }
     },
     {
@@ -997,6 +997,80 @@
         "body": "={{ JSON.stringify({ content: $('Compose Dev Explanation').first().json.explanation }) }}",
         "rawContentType": "application/json"
       }
+    },
+    {
+      "id": "route-msg-type-capacity",
+      "name": "Route Message Type (capacity)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        750
+      ],
+      "parameters": {
+        "jsCode": "if (!($input.first().json.is_capacity_query === true)) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "prepare-f20-input-dev",
+      "name": "Prepare F20 Input (Dev)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        750
+      ],
+      "parameters": {
+        "jsCode": "if (!$env.F20_WORKFLOW_ID) throw new Error('F20_WORKFLOW_ID not set');\nconst j = $input.first().json;\nreturn [{ json: {\n  question: j.content,\n  requester_discord_id: $('Verify Developer').first().json.author_id,\n  requester_role: 'developer',\n} }];"
+      }
+    },
+    {
+      "id": "call-f20-dev",
+      "name": "Call F-20 (Dev)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        2250,
+        750
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $env.F20_WORKFLOW_ID }}",
+          "mode": "id"
+        },
+        "waitForSubWorkflow": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "post-capacity-response-dev",
+      "name": "Post Capacity Response (Dev)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        750
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ `https://discord.com/api/v10/channels/${$('Detect Approval Command').first().json.channel_id}/messages` }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={{ JSON.stringify({ content: String($json.response_text || '').slice(0, 2000) }) }}",
+        "rawContentType": "application/json"
+      }
     }
   ],
   "connections": {
@@ -1318,6 +1392,11 @@
             "node": "Route Message Type (explain)",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Route Message Type (capacity)",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1503,6 +1582,39 @@
         [
           {
             "node": "Fetch Pending Teammate Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Message Type (capacity)": {
+      "main": [
+        [
+          {
+            "node": "Prepare F20 Input (Dev)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare F20 Input (Dev)": {
+      "main": [
+        [
+          {
+            "node": "Call F-20 (Dev)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call F-20 (Dev)": {
+      "main": [
+        [
+          {
+            "node": "Post Capacity Response (Dev)",
             "type": "main",
             "index": 0
           }
