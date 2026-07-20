@@ -65,7 +65,8 @@
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT pm.roster_discord_id, cp.name AS project_name\nFROM pipemind.project_memberships pm\nJOIN pipemind.clockify_projects cp ON cp.clockify_project_id = pm.clockify_project_id\nWHERE pm.is_active = true AND pm.roster_discord_id IS NOT NULL;"
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "e7ec8ada-9c43-4341-b21c-11925fcff189",
