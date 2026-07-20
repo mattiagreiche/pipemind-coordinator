@@ -61,7 +61,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "// C-01: Only the Team Lead (role=team_lead) may interact with this workflow\nconst authorId = String($('Filter Message').first().json.author_id);\nconst rosterRows = $('Fetch Roster').all();\nconst tl = rosterRows.find(r => r.json.role === 'team_lead');\n\nif (!tl || String(tl.json.discord_id) !== authorId) {\n  return [{ json: { tlVerified: false } }];\n}\nreturn [{ json: { tlVerified: true } }];"
+        "jsCode": "// C-01: Only a Team Lead (role=team_lead) may interact with this workflow\nconst authorId = String($('Filter Message').first().json.author_id);\nconst rosterRows = $('Fetch Roster').all();\nconst isTL = rosterRows.some(r => r.json.role === 'team_lead' && String(r.json.discord_id) === authorId);\n\nif (!isTL) {\n  return [{ json: { tlVerified: false } }];\n}\nreturn [{ json: { tlVerified: true } }];"
       }
     },
     {
