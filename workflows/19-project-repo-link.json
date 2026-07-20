@@ -1,0 +1,196 @@
+{
+  "name": "19 — F-19: Project-Repository Linking",
+  "nodes": [
+    {
+      "id": "9b37b3f2-a50b-4c74-8173-590e28fc66d0",
+      "name": "Sub-Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "parameters": {}
+    },
+    {
+      "id": "b913a237-bdd5-4641-9569-da99ea06a0de",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (!j.clockify_project_id || typeof j.clockify_project_id !== 'string') {\n  throw new Error('F-19: missing clockify_project_id');\n}\nif (!j.name || typeof j.name !== 'string') {\n  throw new Error('F-19: missing project name');\n}\nconst safeName = String(j.name)\n  .replace(/[\\x00-\\x1F\\x7F]/g, '')\n  .replace(/\\{\\{.*?\\}\\}/g, '')\n  .replace(/[*_`~|]/g, '')\n  .slice(0, 100);\nreturn [{ json: {\n  clockify_project_id: j.clockify_project_id,\n  safe_project_name: safeName,\n} }];"
+      }
+    },
+    {
+      "id": "a1fbe7c5-0e88-4d7d-b548-8a40d64c9cd7",
+      "name": "Check Already Handled",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [440, 300],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT COUNT(*) FROM pipemind.project_repos\n   WHERE clockify_project_id = $1\n     AND (repo_url IS NOT NULL OR intentionally_unlinked = true))::int AS already_resolved,\n  (SELECT COUNT(*) FROM pipemind.project_repos\n   WHERE clockify_project_id = $1\n     AND link_request_posted_at IS NOT NULL)::int AS request_already_sent\nFROM (SELECT 1) AS d;",
+        "queryReplacement": "={{ [$('Validate Input').first().json.clockify_project_id] }}"
+      }
+    },
+    {
+      "id": "378252d4-5596-4ab3-b302-b22d4c898a85",
+      "name": "Guard Already Handled",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif ((j.already_resolved || 0) > 0 || (j.request_already_sent || 0) > 0) {\n  return []; // F-19.7: already handled, stop silently\n}\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "8a6e06fa-eca4-4f07-8582-41ccf7f66ecf",
+      "name": "Post Linking Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "continueOnFail": true,
+      "position": [880, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $env.TL_CHANNEL_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $env.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ content: \"[Pipemind] Nouveau projet détecté dans Clockify : **\" + $('Validate Input').first().json.safe_project_name + \"**.\\n\\nPour lier ce projet à un dépôt GitHub, répondez dans ce canal (ex: `lier \" + $('Validate Input').first().json.safe_project_name + \" à github.com/org/repo`).\\nSi ce projet n'a pas de dépôt, répondez `pas de dépôt pour \" + $('Validate Input').first().json.safe_project_name + \"`.\", }) }}"
+      }
+    },
+    {
+      "id": "d72e4f9a-3b1c-4e5d-8f2a-6c7b8d9e0f1a",
+      "name": "Guard Discord Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [990, 300],
+      "parameters": {
+        "jsCode": "if ($json.error) {\n  throw new Error('F-19: Discord POST failed — request not recorded. Check TL_CHANNEL_ID and bot token. Error: ' + JSON.stringify($json.error));\n}\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "c451c55c-18fc-4a65-9525-a93947a34920",
+      "name": "Record Link Request",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1100, 300],
+      "credentials": {
+        "postgres": {
+          "id": "loY6OMgbNA9Cm4d8",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipemind.project_repos (clockify_project_id, link_request_posted_at)\nVALUES ($1, now())\nON CONFLICT DO NOTHING;",
+        "queryReplacement": "={{ [$('Validate Input').first().json.clockify_project_id] }}"
+      }
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Check Already Handled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Already Handled": {
+      "main": [
+        [
+          {
+            "node": "Guard Already Handled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard Already Handled": {
+      "main": [
+        [
+          {
+            "node": "Post Linking Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Linking Request": {
+      "main": [
+        [
+          {
+            "node": "Guard Discord Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard Discord Success": {
+      "main": [
+        [
+          {
+            "node": "Record Link Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "pipemind"
+  },
+  "tags": [
+    {
+      "name": "project-repo-link"
+    },
+    {
+      "name": "sub-workflow"
+    },
+    {
+      "name": "p1"
+    }
+  ],
+  "id": "jn2CZaItlSBg0H5k"
+}
