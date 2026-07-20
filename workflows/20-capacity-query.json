@@ -114,7 +114,7 @@
       "position": [1340, 400],
       "parameters": {
         "method": "GET",
-        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/user/{{ $json.clockify_user_id }}/time-entries?start={{ $json.start_iso }}&end={{ $json.end_iso }}",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/user/${encodeURIComponent($json.clockify_user_id)}/time-entries?start=${encodeURIComponent($json.start_iso)}&end=${encodeURIComponent($json.end_iso)}` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -135,7 +135,7 @@
       "position": [1560, 400],
       "parameters": {
         "method": "GET",
-        "url": "=https://api.clockify.me/api/v1/workspaces/{{ $env.CLOCKIFY_WORKSPACE_ID }}/time-off/requests?status=APPROVED&start={{ $('Prepare Clockify Requests').item.json.start_iso }}&end={{ $('Prepare Clockify Requests').item.json.end_iso }}",
+        "url": "={{ `https://api.clockify.me/api/v1/workspaces/${$env.CLOCKIFY_WORKSPACE_ID}/time-off/requests?status=APPROVED&start=${encodeURIComponent($('Prepare Clockify Requests').item.json.start_iso)}&end=${encodeURIComponent($('Prepare Clockify Requests').item.json.end_iso)}` }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -225,7 +225,7 @@
       "typeVersion": 2,
       "position": [2660, 400],
       "parameters": {
-        "jsCode": "const llmOut = $input.first().json;\nconst rawContext = $('Build LLM Request').first().json.raw_context || '';\nlet responseText = String(llmOut.content?.[0]?.text ?? '').trim();\n\nif (!responseText) {\n  responseText = 'Voici les donn\\u00e9es de disponibilit\\u00e9 (r\\u00e9ponse LLM indisponible) :\\n\\n' + rawContext;\n}\n\n// SC-04 audit: check for ranking language\nconst rankingPatterns = [\n  /\\b(le plus|la plus|le moins|la moins|most|least|best|worst|highest|lowest|ranking|classement)\\b/i,\n  /\\b(behind|en retard|slacking|underperforming)\\b/i,\n];\nconst hasRanking = rankingPatterns.some(p => p.test(responseText));\nif (hasRanking) {\n  responseText = 'Voici les donn\\u00e9es de disponibilit\\u00e9 \\u2014 je vous laisse juger de la charge de chacun :\\n\\n' + rawContext;\n}\n\nreturn [{ json: { response_text: responseText } }];"
+        "jsCode": "const llmOut = $input.first().json;\nconst rawContext = $('Build LLM Request').first().json.raw_context || '';\nlet responseText = String(llmOut.content?.[0]?.text ?? '').trim();\n\nif (!responseText) {\n  responseText = 'La r\\u00e9ponse LLM est temporairement indisponible. Veuillez r\\u00e9essayer dans un instant.';\n}\n\n// SC-04 audit: check for ranking language\nconst rankingPatterns = [\n  /\\b(le plus|la plus|le moins|la moins|most|least|best|worst|highest|lowest|ranking|classement)\\b/i,\n  /\\b(behind|en retard|slacking|underperforming)\\b/i,\n];\nconst hasRanking = rankingPatterns.some(p => p.test(responseText));\nif (hasRanking) {\n  responseText = 'Les donn\\u00e9es ont \\u00e9t\\u00e9 r\\u00e9cup\\u00e9r\\u00e9es mais la formulation g\\u00e9n\\u00e9r\\u00e9e a \\u00e9t\\u00e9 supprim\\u00e9e (comparaison d\\u00e9tect\\u00e9e). Veuillez reformuler votre question et je fournirai les faits bruts par personne.';\n}\n\nreturn [{ json: { response_text: responseText } }];"
       }
     },
     {
