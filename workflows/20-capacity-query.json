@@ -1,5 +1,5 @@
 {
-  "name": "20 — F-20: Capacity & Bandwidth Query",
+  "name": "20 \u2014 F-20: Capacity & Bandwidth Query",
   "nodes": [
     {
       "id": "7f615048-3705-427b-9f4a-bff0eaa97a3b",
@@ -10,7 +10,9 @@
         0,
         300
       ],
-      "parameters": {}
+      "parameters": {
+        "inputSource": "passthrough"
+      }
     },
     {
       "id": "4d94cc75-5a31-472c-ab4e-3723000a6d4e",
@@ -186,7 +188,7 @@
         400
       ],
       "parameters": {
-        "jsCode": "// person: fetched via paired-item reference — requires 1:1 item flow from\n// Prepare Clockify Requests through Fetch Time Entries and Fetch Time-Off\nconst person = $('Prepare Clockify Requests').item.json;\nconst entriesRaw = $input.first().json;\nlet timeOffRaw;\ntry {\n  timeOffRaw = $('Fetch Time-Off').item?.json;\n} catch (_) {\n  timeOffRaw = null;\n}\n\n// Check availability\nconst clockifyAvailable = Array.isArray(entriesRaw);\nconst timeOffAvailable = Array.isArray(timeOffRaw);\n\nlet hoursLogged = null;\nif (clockifyAvailable) {\n  const totalSeconds = entriesRaw.reduce((sum, e) => {\n    if (e.timeInterval && e.timeInterval.duration) {\n      // duration format: PT8H30M -> parse\n      const match = e.timeInterval.duration.match(/PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?/);\n      if (match) {\n        const h = parseInt(match[1] || '0', 10);\n        const m = parseInt(match[2] || '0', 10);\n        const s = parseInt(match[3] || '0', 10);\n        return sum + h * 3600 + m * 60 + s;\n      }\n    }\n    return sum;\n  }, 0);\n  hoursLogged = Math.round(totalSeconds / 360) / 10; // 1 decimal\n}\n\nlet timeOffDays = [];\nif (timeOffAvailable) {\n  // Extract day strings from time-off entries for this user\n  timeOffDays = timeOffRaw\n    .filter(t => t.userId === person.clockify_user_id)\n    .map(t => t.timeOffPeriod?.start?.slice(0, 10))\n    .filter(Boolean);\n}\n\nreturn [{ json: {\n  discord_id: person.discord_id,\n  name: person.name,\n  projects: person.projects,\n  hours_logged: hoursLogged,\n  time_off_days: timeOffDays,\n  clockify_available: clockifyAvailable,\n  safe_question: person.safe_question,\n} }];"
+        "jsCode": "// person: fetched via paired-item reference \u2014 requires 1:1 item flow from\n// Prepare Clockify Requests through Fetch Time Entries and Fetch Time-Off\nconst person = $('Prepare Clockify Requests').item.json;\nconst entriesRaw = $input.first().json;\nlet timeOffRaw;\ntry {\n  timeOffRaw = $('Fetch Time-Off').item?.json;\n} catch (_) {\n  timeOffRaw = null;\n}\n\n// Check availability\nconst clockifyAvailable = Array.isArray(entriesRaw);\nconst timeOffAvailable = Array.isArray(timeOffRaw);\n\nlet hoursLogged = null;\nif (clockifyAvailable) {\n  const totalSeconds = entriesRaw.reduce((sum, e) => {\n    if (e.timeInterval && e.timeInterval.duration) {\n      // duration format: PT8H30M -> parse\n      const match = e.timeInterval.duration.match(/PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?/);\n      if (match) {\n        const h = parseInt(match[1] || '0', 10);\n        const m = parseInt(match[2] || '0', 10);\n        const s = parseInt(match[3] || '0', 10);\n        return sum + h * 3600 + m * 60 + s;\n      }\n    }\n    return sum;\n  }, 0);\n  hoursLogged = Math.round(totalSeconds / 360) / 10; // 1 decimal\n}\n\nlet timeOffDays = [];\nif (timeOffAvailable) {\n  // Extract day strings from time-off entries for this user\n  timeOffDays = timeOffRaw\n    .filter(t => t.userId === person.clockify_user_id)\n    .map(t => t.timeOffPeriod?.start?.slice(0, 10))\n    .filter(Boolean);\n}\n\nreturn [{ json: {\n  discord_id: person.discord_id,\n  name: person.name,\n  projects: person.projects,\n  hours_logged: hoursLogged,\n  time_off_days: timeOffDays,\n  clockify_available: clockifyAvailable,\n  safe_question: person.safe_question,\n} }];"
       }
     },
     {
