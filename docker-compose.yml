@@ -80,6 +80,7 @@ services:
       REPORT_DAY_TIME: ${REPORT_DAY_TIME}
       SYNC_WORKING_HOURS_START: ${SYNC_WORKING_HOURS_START}
       SYNC_WORKING_HOURS_END: ${SYNC_WORKING_HOURS_END}
+      SYNC_WEBHOOK_SECRET: ${SYNC_WEBHOOK_SECRET}
       # Roster config path (mounted below)
       ROSTER_CONFIG_PATH: /config/roster.json
       # Allow fs module in Code nodes (needed for Read Roster File)
