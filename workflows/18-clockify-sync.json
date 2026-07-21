@@ -37,7 +37,7 @@
       "typeVersion": 2,
       "position": [220, 300],
       "parameters": {
-        "jsCode": "const hour = new Date().getUTCHours();\nconst start = parseInt($env.SYNC_WORKING_HOURS_START || '7', 10);\nconst end   = parseInt($env.SYNC_WORKING_HOURS_END   || '21', 10);\nconst isManual = !!($input.first().json.body || $input.first().json.manual);\nif (isManual) {\n  const secret = $env.SYNC_WEBHOOK_SECRET;\n  if (secret) {\n    const provided = ($input.first().json.headers || {})['x-sync-secret'] || '';\n    if (provided !== secret) throw new Error('F-18: Unauthorized — invalid or missing X-Sync-Secret header');\n  }\n}\nif (!isManual && (hour < start || hour >= end)) return [];\nreturn [{ json: { triggered_at: new Date().toISOString(), manual: isManual } }];"
+        "jsCode": "const hour = new Date().getUTCHours();\nconst start = parseInt($env.SYNC_WORKING_HOURS_START || '7', 10);\nconst end   = parseInt($env.SYNC_WORKING_HOURS_END   || '21', 10);\nconst isManual = !!($input.first().json.body || $input.first().json.manual);\nif (isManual) {\n  const secret = $env.SYNC_WEBHOOK_SECRET;\n  if (!secret) throw new Error('F-18: SYNC_WEBHOOK_SECRET is not configured — manual sync webhook is disabled until it is set.');\n  const provided = ($input.first().json.headers || {})['x-sync-secret'] || '';\n  if (provided !== secret) throw new Error('F-18: Unauthorized — invalid or missing X-Sync-Secret header');\n}\nif (!isManual && (hour < start || hour >= end)) return [];\nreturn [{ json: { triggered_at: new Date().toISOString(), manual: isManual } }];"
       }
     },
     {
@@ -89,7 +89,7 @@
       "typeVersion": 2,
       "position": [680, 300],
       "parameters": {
-        "jsCode": "const projectsRaw = $('Fetch Clockify Projects').first().json;\nconst usersRaw = $('Fetch Clockify Users').first().json;\n\nconst projectsOk = Array.isArray(projectsRaw);\nconst usersOk = Array.isArray(usersRaw);\n\nif (!projectsOk || !usersOk) {\n  // Post warning to TL channel\n  const msg = !projectsOk && !usersOk\n    ? '[Pipemind] Clockify sync échoué — les deux endpoints Clockify sont indisponibles. La dernière image connue est conservée.'\n    : !projectsOk\n      ? '[Pipemind] Clockify sync échoué — endpoint projects indisponible.'\n      : '[Pipemind] Clockify sync échoué — endpoint users indisponible.';\n  try {\n    await $helpers.httpRequest({\n      method: 'POST',\n      url: `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages`,\n      headers: { 'Authorization': `Bot ${$env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },\n      body: JSON.stringify({ content: msg }),\n    });\n  } catch(e) { /* non-critical */ }\n  return [];\n}\n\n// Build users map: clockify_user_id -> { name, email }\nconst usersMap = {};\nfor (const u of usersRaw) {\n  usersMap[u.id] = { name: u.name, email: u.email };\n}\n\n// Normalize projects\nconst projects = projectsRaw.map(p => ({\n  clockify_project_id: p.id,\n  name: String(p.name || '').slice(0, 200),\n  client_name: p.clientName ? String(p.clientName).slice(0, 200) : null,\n  memberships: (p.memberships || [])\n    .filter(m => m.membershipStatus === 'ACTIVE')\n    .map(m => ({ clockify_user_id: m.userId })),\n}));\n\nreturn [{ json: { projects, users_map: usersMap } }];"
+        "jsCode": "const projectsRaw = $('Fetch Clockify Projects').first().json;\nconst usersRaw = $('Fetch Clockify Users').first().json;\n\nconst projectsOk = Array.isArray(projectsRaw);\nconst usersOk = Array.isArray(usersRaw);\n\nif (!projectsOk || !usersOk) {\n  // Post warning to TL channel\n  const msg = !projectsOk && !usersOk\n    ? '[Pipemind] Clockify sync échoué — les deux endpoints Clockify sont indisponibles. La dernière image connue est conservée.'\n    : !projectsOk\n      ? '[Pipemind] Clockify sync échoué — endpoint projects indisponible.'\n      : '[Pipemind] Clockify sync échoué — endpoint users indisponible.';\n  try {\n    await $helpers.httpRequest({\n      method: 'POST',\n      url: `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages`,\n      headers: { 'Authorization': `Bot ${$env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },\n      body: JSON.stringify({ content: msg }),\n    });\n  } catch(e) { /* non-critical */ }\n  return [];\n}\n\n// F-18: single-page fetch (page-size=200, no cursor loop) — warn rather than silently\n// drop entries past page 1 if the workspace ever grows past this page size.\nif (projectsRaw.length >= 200 || usersRaw.length >= 200) {\n  const which = projectsRaw.length >= 200 && usersRaw.length >= 200 ? 'projects et users' : projectsRaw.length >= 200 ? 'projects' : 'users';\n  try {\n    await $helpers.httpRequest({\n      method: 'POST',\n      url: `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages`,\n      headers: { 'Authorization': `Bot ${$env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },\n      body: JSON.stringify({ content: `[Pipemind] Avertissement sync Clockify : la page ${which} a atteint la limite de 200 résultats — des entrées au-delà de cette page sont possiblement absentes du sync. Pagination non implémentée.` }),\n    });\n  } catch(e) { /* non-critical */ }\n}\n\n// Build users map: clockify_user_id -> { name, email }\nconst usersMap = {};\nfor (const u of usersRaw) {\n  usersMap[u.id] = { name: u.name, email: u.email };\n}\n\n// Normalize projects\nconst projects = projectsRaw.map(p => ({\n  clockify_project_id: p.id,\n  name: String(p.name || '').slice(0, 200),\n  client_name: p.clientName ? String(p.clientName).slice(0, 200) : null,\n  memberships: (p.memberships || [])\n    .filter(m => m.membershipStatus === 'ACTIVE')\n    .map(m => ({ clockify_user_id: m.userId })),\n}));\n\nreturn [{ json: { projects, users_map: usersMap } }];"
       }
     },
     {
@@ -136,7 +136,7 @@
         "operation": "executeQuery",
         "query": "={{ $json.project_sql }}",
         "options": {
-          "queryReplacement": "={{ JSON.stringify($json.project_params) }}"
+          "queryReplacement": "={{ $json.project_params }}"
         },
         "alwaysOutputData": true
       }
@@ -157,7 +157,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.clockify_projects SET is_active = false, updated_at = now() WHERE is_active = true AND last_synced_at < $1::TIMESTAMPTZ;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Build Upsert Data').first().json.triggered_at]) }}"
+          "queryReplacement": "={{ [$('Build Upsert Data').first().json.triggered_at] }}"
         }
       }
     },
@@ -177,7 +177,7 @@
         "operation": "executeQuery",
         "query": "={{ $('Build Upsert Data').first().json.membership_sql }}",
         "options": {
-          "queryReplacement": "={{ JSON.stringify($('Build Upsert Data').first().json.membership_params) }}"
+          "queryReplacement": "={{ $('Build Upsert Data').first().json.membership_params }}"
         },
         "alwaysOutputData": true
       }
@@ -198,7 +198,7 @@
         "operation": "executeQuery",
         "query": "UPDATE pipemind.project_memberships SET is_active = false, updated_at = now() WHERE is_active = true AND last_synced_at < $1::TIMESTAMPTZ;",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Build Upsert Data').first().json.triggered_at]) }}"
+          "queryReplacement": "={{ [$('Build Upsert Data').first().json.triggered_at] }}"
         }
       }
     },
@@ -218,7 +218,7 @@
         "operation": "executeQuery",
         "query": "SELECT cp.clockify_project_id, cp.name\nFROM pipemind.clockify_projects cp\nWHERE cp.first_seen_at >= $1::TIMESTAMPTZ\n  AND NOT EXISTS (\n    SELECT 1 FROM pipemind.project_repos pr\n    WHERE pr.clockify_project_id = cp.clockify_project_id\n  );",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Build Upsert Data').first().json.triggered_at]) }}"
+          "queryReplacement": "={{ [$('Build Upsert Data').first().json.triggered_at] }}"
         },
         "alwaysOutputData": true
       }
@@ -234,11 +234,42 @@
       }
     },
     {
+      "id": "filter-new-projects",
+      "name": "Filter New Projects",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1900, 400],
+      "parameters": {
+        "jsCode": "// Detect New Projects / Flag Unmapped Users use alwaysOutputData so a 0-row query\n// doesn't kill the chain — but that means a 0-row result arrives here as one\n// placeholder item with no clockify_project_id. Strip it before branching so\n// Split New Projects only ever sees real new-project rows.\nreturn $input.all().filter(i => i.json && i.json.clockify_project_id);"
+      }
+    },
+    {
+      "id": "has-new-projects-yes",
+      "name": "Has New Projects? (yes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "parameters": {
+        "jsCode": "if ($input.all().length === 0) return [];\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "has-new-projects-no",
+      "name": "Has New Projects? (no)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 550],
+      "alwaysOutputData": true,
+      "parameters": {
+        "jsCode": "if ($input.all().length > 0) return [];\nreturn [{ json: {} }];"
+      }
+    },
+    {
       "id": "split-new-projects",
       "name": "Split New Projects",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [2000, 400],
+      "position": [2220, 300],
       "parameters": {
         "batchSize": 1,
         "options": {}
@@ -277,7 +308,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.system_state (key, value) VALUES ('clockify_last_sync', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();",
         "options": {
-          "queryReplacement": "={{ JSON.stringify([$('Build Upsert Data').first().json.triggered_at]) }}"
+          "queryReplacement": "={{ [$('Build Upsert Data').first().json.triggered_at] }}"
         }
       }
     }
@@ -435,7 +466,45 @@
       "main": [
         [
           {
+            "node": "Filter New Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter New Projects": {
+      "main": [
+        [
+          {
+            "node": "Has New Projects? (yes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Has New Projects? (no)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Projects? (yes)": {
+      "main": [
+        [
+          {
             "node": "Split New Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Projects? (no)": {
+      "main": [
+        [
+          {
+            "node": "Update Sync Timestamp",
             "type": "main",
             "index": 0
           }
@@ -446,14 +515,14 @@
       "main": [
         [
           {
-            "node": "Call F-19",
+            "node": "Update Sync Timestamp",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Update Sync Timestamp",
+            "node": "Call F-19",
             "type": "main",
             "index": 0
           }
@@ -464,7 +533,7 @@
       "main": [
         [
           {
-            "node": "Update Sync Timestamp",
+            "node": "Split New Projects",
             "type": "main",
             "index": 0
           }
