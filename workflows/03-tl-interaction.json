@@ -87,7 +87,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "const msg_ctx = $('Filter Message').first().json;\nconst rosterRows = $('Fetch Roster').all();\nconst msg = msg_ctx.content.trim();\n\n// C-02/M-03: normalize + word-boundary (consistent with F-08)\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst msgNorm = normalize(msg);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\n// Named individual detection (no length gate — handles short names)\nlet asksForNamed = false;\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/[\\s-]+/).filter(p => p.length > 2);\n  for (const part of parts) {\n    if (hasWordBoundary(msgNorm, part)) {\n      asksForNamed = true;\n      break;\n    }\n  }\n  if (asksForNamed) break;\n}\n\n// SC-13: explain what the agent does / what data it used — checked first so an\n// explain question phrased as a question ('why did you...?') isn't misread as status_question.\nconst explainKeywords = ['explain', 'what do you do', 'what data', 'how do you work', 'why did you', 'quelles donnees', 'explique'];\nconst isExplainRequest = explainKeywords.some(kw => msgNorm.includes(kw));\n\nconst reportKeywords = ['report', 'rapport', 'generate', 'weekly', 'status report', 'genere'];\nconst isReportRequest = !isExplainRequest && reportKeywords.some(kw => msgNorm.includes(kw));\n\n// F-19: link_project detection\nconst linkKeywords = ['lier', 'link', 'github.com', 'gitlab.com', 'bitbucket.org',\n                      'pas de depot', 'no repo', 'aucun depot'];\nconst isLinkProject = !isExplainRequest && !isReportRequest\n  && linkKeywords.some(kw => msgNorm.includes(kw));\n\n// F-20: capacity_query detection\nconst capacityKeywords = ['bandwidth', 'capacity', 'disponib', 'heures', 'hours',\n                          'available', 'dispo', 'charge de travail', 'workload',\n                          'occupe', 'free', 'libre'];\nconst isCapacityQuery = !isExplainRequest && !isReportRequest && !isLinkProject\n  && capacityKeywords.some(kw => msgNorm.includes(kw));\n\n\n// Project assignment query: TL asking what projects a named person works on\nconst projectAssignKeywords = ['projet', 'project', 'travaille', 'works on', 'assign', 'membre de'];\nconst isProjectAssignQuery = !isExplainRequest && !isReportRequest && !isLinkProject && !isCapacityQuery\n  && asksForNamed\n  && projectAssignKeywords.some(kw => msgNorm.includes(kw));\n\nconst questionIndicators =\n  msg.endsWith('?') ||\n  /\\b(how|status|quel|comment|blocked|progress|blocker|update)\\b/.test(msgNorm);\nconst isStatusQuestion = !isExplainRequest && !isReportRequest && !isLinkProject && !isCapacityQuery && questionIndicators;\n\nlet intent;\nif (isExplainRequest) intent = 'explain_request';\nelse if (isReportRequest) intent = 'report_request';\nelse if (isLinkProject)   intent = 'link_project';\nelse if (isCapacityQuery) intent = 'capacity_query';\nelse if (isProjectAssignQuery) intent = 'project_assignment_query';\nelse if (isStatusQuestion) intent = 'status_question';\nelse intent = 'unknown';\n\nreturn [{ json: {\n  intent,\n  asksForNamed,\n  content: msg_ctx.content,\n  author_id: msg_ctx.author_id,\n  channel_id: msg_ctx.channel_id,\n  message_id: msg_ctx.message_id\n} }];"
+        "jsCode": "const msg_ctx = $('Filter Message').first().json;\nconst rosterRows = $('Fetch Roster').all();\nconst msg = msg_ctx.content.trim();\n\n// C-02/M-03: normalize + word-boundary (consistent with F-08)\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst msgNorm = normalize(msg);\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\n// Named individual detection (no length gate — handles short names)\nlet asksForNamed = false;\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  if (!name.trim()) continue;\n  const parts = name.split(/[\\s-]+/).filter(p => p.length > 2);\n  for (const part of parts) {\n    if (hasWordBoundary(msgNorm, part)) {\n      asksForNamed = true;\n      break;\n    }\n  }\n  if (asksForNamed) break;\n}\n\n// SC-13: explain what the agent does / what data it used — checked first so an\n// explain question phrased as a question ('why did you...?') isn't misread as status_question.\nconst explainKeywords = ['explain', 'what do you do', 'what data', 'how do you work', 'why did you', 'quelles donnees', 'explique'];\nconst isExplainRequest = explainKeywords.some(kw => msgNorm.includes(kw));\n\nconst reportKeywords = ['report', 'rapport', 'generate', 'weekly', 'status report', 'genere'];\nconst isReportRequest = !isExplainRequest && reportKeywords.some(kw => msgNorm.includes(kw));\n\n// F-19: link_project detection\nconst linkKeywords = ['lier', 'link', 'github.com', 'gitlab.com', 'bitbucket.org',\n                      'pas de depot', 'no repo', 'aucun depot'];\nconst isLinkProject = !isExplainRequest && !isReportRequest\n  && linkKeywords.some(kw => msgNorm.includes(kw));\n\n// F-20: capacity_query detection — bundles project/assignment questions (e.g. sur\n// quels projets travaille X ?) into the same audited path as bandwidth/hours\n// questions, rather than a separate unaudited disclosure route (both are part of\n// SC-23's bundle: project commitments + hours + availability). The project/\n// assignment keyword subset stays gated on asksForNamed (as the old separate\n// intent was) — otherwise bare words like 'projet'/'project' would swallow most\n// F-16.4 generic status questions (e.g. \"quel est le statut du projet ?\") into\n// F-20's per-developer hours/assignment dump instead of the anonymized answer.\nconst bandwidthKeywords = ['bandwidth', 'capacity', 'disponib', 'heures', 'hours',\n                          'available', 'dispo', 'charge de travail', 'workload',\n                          'occupe', 'free', 'libre'];\nconst projectAssignKeywords = ['projet', 'project', 'travaille', 'works on', 'assign', 'membre de'];\nconst isCapacityQuery = !isExplainRequest && !isReportRequest && !isLinkProject\n  && (bandwidthKeywords.some(kw => msgNorm.includes(kw))\n      || (asksForNamed && projectAssignKeywords.some(kw => msgNorm.includes(kw))));\n\nconst questionIndicators =\n  msg.endsWith('?') ||\n  /\\b(how|status|quel|comment|blocked|progress|blocker|update)\\b/.test(msgNorm);\nconst isStatusQuestion = !isExplainRequest && !isReportRequest && !isLinkProject && !isCapacityQuery && questionIndicators;\n\nlet intent;\nif (isExplainRequest) intent = 'explain_request';\nelse if (isReportRequest) intent = 'report_request';\nelse if (isLinkProject)   intent = 'link_project';\nelse if (isCapacityQuery) intent = 'capacity_query';\nelse if (isStatusQuestion) intent = 'status_question';\nelse intent = 'unknown';\n\nreturn [{ json: {\n  intent,\n  asksForNamed,\n  content: msg_ctx.content,\n  author_id: msg_ctx.author_id,\n  channel_id: msg_ctx.channel_id,\n  message_id: msg_ctx.message_id\n} }];"
       }
     },
     {
@@ -474,7 +474,7 @@
         550
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nconst handled = ['explain_request', 'report_request', 'status_question', 'link_project', 'capacity_query', 'project_assignment_query'];\nif (handled.includes(j.intent)) return [];\nreturn $input.all();"
+        "jsCode": "const j = $input.first().json;\nconst handled = ['explain_request', 'report_request', 'status_question', 'link_project', 'capacity_query'];\nif (handled.includes(j.intent)) return [];\nreturn $input.all();"
       }
     },
     {
@@ -636,7 +636,7 @@
         "operation": "executeQuery",
         "query": "={{ $json.sql }}",
         "options": {
-          "queryReplacement": "={{ JSON.stringify($json.params) }}"
+          "queryReplacement": "={{ $json.params }}"
         }
       }
     },
@@ -745,95 +745,6 @@
         "body": "={{ JSON.stringify({ content: String($json.response_text || '').slice(0, 2000) }) }}",
         "rawContentType": "application/json"
       }
-    },
-    {
-      "id": "if-project-assignment-query",
-      "name": "Project Assignment Query?",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1750,
-        1100
-      ],
-      "parameters": {
-        "jsCode": "if ($input.first().json.intent !== 'project_assignment_query') return [];\nreturn $input.all();"
-      }
-    },
-    {
-      "id": "identify-named-person",
-      "name": "Identify Named Person",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2000,
-        1100
-      ],
-      "parameters": {
-        "jsCode": "const j = $input.first().json;\nconst msgNorm = String(j.content).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\nconst rosterRows = $('Fetch Roster').all();\nconst normalize = s => String(s).normalize('NFKD').replace(/[^\\x00-\\x7F]/g, '').toLowerCase();\n\nconst hasWordBoundary = (haystack, needle) => {\n  let idx = 0;\n  while ((idx = haystack.indexOf(needle, idx)) !== -1) {\n    const pre  = idx === 0 || !/[a-z0-9]/.test(haystack[idx - 1]);\n    const post = idx + needle.length >= haystack.length || !/[a-z0-9]/.test(haystack[idx + needle.length]);\n    if (pre && post) return true;\n    idx++;\n  }\n  return false;\n};\n\nlet named_discord_id = null;\nlet named_name = null;\nfor (const row of rosterRows) {\n  const name = normalize(row.json.name || '');\n  const parts = name.split(/[\\s-]+/).filter(p => p.length > 2);\n  for (const part of parts) {\n    if (hasWordBoundary(msgNorm, part)) {\n      named_discord_id = row.json.discord_id;\n      named_name = row.json.name;\n      break;\n    }\n  }\n  if (named_discord_id) break;\n}\n\nreturn [{ json: { named_discord_id, named_name, channel_id: j.channel_id } }];"
-      }
-    },
-    {
-      "id": "fetch-person-projects",
-      "name": "Fetch Person Projects",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        2250,
-        1100
-      ],
-      "alwaysOutputData": true,
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT cp.name AS project_name\nFROM pipemind.project_memberships pm\nJOIN pipemind.clockify_projects cp ON cp.clockify_project_id = pm.clockify_project_id\nWHERE pm.is_active = true AND pm.roster_discord_id = '{{ $json.named_discord_id }}'\nORDER BY cp.name;"
-      },
-      "credentials": {
-        "postgres": {
-          "id": "loY6OMgbNA9Cm4d8",
-          "name": "Postgres account"
-        }
-      }
-    },
-    {
-      "id": "build-assignment-reply",
-      "name": "Build Assignment Reply",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2500,
-        1100
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const namedPerson = $('Identify Named Person').first().json;\nconst projects = $('Fetch Person Projects').all().map(i => i.json.project_name).filter(Boolean);\nconst name = namedPerson.named_name;\n\nlet reply;\nif (!name) {\n  reply = \"Je ne reconnais pas ce nom dans le roster.\";\n} else if (projects.length === 0) {\n  reply = `${name} n'est assigné(e) à aucun projet actif dans Clockify.`;\n} else {\n  reply = `Projets actifs de ${name} dans Clockify :\\n${projects.map(p => `• ${p}`).join('\\n')}`;\n}\n\nreturn [{ json: { reply, channel_id: namedPerson.channel_id } }];"
-      }
-    },
-    {
-      "id": "post-assignment-reply",
-      "name": "Post Assignment Reply",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2750,
-        1100
-      ],
-      "continueOnFail": true,
-      "parameters": {
-        "method": "POST",
-        "url": "={{ `https://discord.com/api/v10/channels/${$env.TL_CHANNEL_ID}/messages` }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bot ' + $env.DISCORD_BOT_TOKEN }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ content: $json.reply }) }}"
-      }
     }
   ],
   "connections": {
@@ -922,11 +833,6 @@
           },
           {
             "node": "Capacity Query?",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Project Assignment Query?",
             "type": "main",
             "index": 0
           }
@@ -1234,50 +1140,6 @@
         [
           {
             "node": "Post Capacity Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Project Assignment Query?": {
-      "main": [
-        [
-          {
-            "node": "Identify Named Person",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Identify Named Person": {
-      "main": [
-        [
-          {
-            "node": "Fetch Person Projects",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fetch Person Projects": {
-      "main": [
-        [
-          {
-            "node": "Build Assignment Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Assignment Reply": {
-      "main": [
-        [
-          {
-            "node": "Post Assignment Reply",
             "type": "main",
             "index": 0
           }
