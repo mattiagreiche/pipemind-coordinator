@@ -101,7 +101,8 @@
                 "operation": "equals"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -225,7 +226,8 @@
                 "operation": "equals"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },

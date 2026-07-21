@@ -1,5 +1,5 @@
 {
-  "name": "11 — F-07: Time-Log Offer (EOD)",
+  "name": "11 \u2014 F-07: Time-Log Offer (EOD)",
   "nodes": [
     {
       "id": "schedule-trigger",
@@ -63,13 +63,14 @@
                 "operation": "equals"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
     {
       "id": "error-roster",
-      "name": "Error — Roster Not Valid",
+      "name": "Error \u2014 Roster Not Valid",
       "type": "n8n-nodes-base.stopAndError",
       "typeVersion": 1,
       "position": [
@@ -208,7 +209,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const developers = $('Aggregate & Guard Empty').first().json.developers;\n\n// Clockify time-off (primary source)\nconst schedData = $('Strip Clockify Schedule').first().json;\nconst schedOk = schedData.clockify_ok;\nconst schedUnavailable = new Set(schedData.clockify_off_ids);\n\n// Google Calendar OOO (secondary source) — SC-06a: stricter source wins\nconst calRaw = $('Check Google Calendar OOO').first()?.json;\nconst calOOO = new Set();\nlet calOk = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const [email, data] of Object.entries(calRaw.calendars)) {\n      if (Array.isArray(data.busy)) {\n        const isOOO = data.busy.some(p => {\n          const hours = (new Date(p.end) - new Date(p.start)) / 3_600_000;\n          return hours >= 6;\n        });\n        if (isOOO) calOOO.add(email.toLowerCase());\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-18: both sources unavailable → fail-safe, no contacts\nif (!schedOk && !calOk) {\n  return [{ json: { actions: [], sc18_failsafe: true } }];\n}\n\nconst actions = [];\nfor (const dev of developers) {\n  // Skip if already offered today (idempotent re-run guard)\n  if (dev.already_offered) continue;\n\n  // SC-06 / SC-06a: if either available source marks person as off, skip\n  let scheduled = true;\n  if (schedOk && dev.clockify_user_id) {\n    if (schedUnavailable.has(String(dev.clockify_user_id))) scheduled = false;\n  }\n  if (calOk && dev.calendar_email) {\n    if (calOOO.has(dev.calendar_email.toLowerCase())) scheduled = false;\n  }\n  if (!scheduled) continue;\n\n  // H-01: only discord_id forwarded; clockify_user_id needed for per-dev entry check\n  actions.push({ discord_id: dev.discord_id, clockify_user_id: dev.clockify_user_id });\n}\n\nreturn [{ json: { actions, sc18_failsafe: false } }];"
+        "jsCode": "const developers = $('Aggregate & Guard Empty').first().json.developers;\n\n// Clockify time-off (primary source)\nconst schedData = $('Strip Clockify Schedule').first().json;\nconst schedOk = schedData.clockify_ok;\nconst schedUnavailable = new Set(schedData.clockify_off_ids);\n\n// Google Calendar OOO (secondary source) \u2014 SC-06a: stricter source wins\nconst calRaw = $('Check Google Calendar OOO').first()?.json;\nconst calOOO = new Set();\nlet calOk = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const [email, data] of Object.entries(calRaw.calendars)) {\n      if (Array.isArray(data.busy)) {\n        const isOOO = data.busy.some(p => {\n          const hours = (new Date(p.end) - new Date(p.start)) / 3_600_000;\n          return hours >= 6;\n        });\n        if (isOOO) calOOO.add(email.toLowerCase());\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-18: both sources unavailable \u2192 fail-safe, no contacts\nif (!schedOk && !calOk) {\n  return [{ json: { actions: [], sc18_failsafe: true } }];\n}\n\nconst actions = [];\nfor (const dev of developers) {\n  // Skip if already offered today (idempotent re-run guard)\n  if (dev.already_offered) continue;\n\n  // SC-06 / SC-06a: if either available source marks person as off, skip\n  let scheduled = true;\n  if (schedOk && dev.clockify_user_id) {\n    if (schedUnavailable.has(String(dev.clockify_user_id))) scheduled = false;\n  }\n  if (calOk && dev.calendar_email) {\n    if (calOOO.has(dev.calendar_email.toLowerCase())) scheduled = false;\n  }\n  if (!scheduled) continue;\n\n  // H-01: only discord_id forwarded; clockify_user_id needed for per-dev entry check\n  actions.push({ discord_id: dev.discord_id, clockify_user_id: dev.clockify_user_id });\n}\n\nreturn [{ json: { actions, sc18_failsafe: false } }];"
       }
     },
     {
@@ -231,7 +232,8 @@
                 "operation": "gt"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -278,7 +280,8 @@
                 "operation": "equals"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -393,7 +396,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const dev = $('Split Into Action Items').item.json;\nconst standupRow = $('Fetch Today Standup').item.json;\nconst clockifyResult = $json; // from Check Dev Clockify Today (may be error on continueOnFail)\n\nlet action = 'offer';\nlet infoMessage = '';\n\nif (dev.clockify_user_id) {\n  if (Array.isArray(clockifyResult) && clockifyResult.length > 0) {\n    // Developer already has time entries today — no offer needed\n    action = 'info_dm';\n    infoMessage = '[Pipemind] You already have time logged in Clockify for today — no action needed.';\n  } else if (!Array.isArray(clockifyResult)) {\n    // continueOnFail error — Clockify API unavailable for this developer\n    action = 'info_dm';\n    infoMessage = '[Pipemind] We could not check your Clockify time entries today. Please log your time manually if you have not already done so.';\n  }\n  // else: empty array → no entries yet → proceed with offer\n}\n// If no clockify_user_id, we always offer (developer not in Clockify)\n\nconst featureArea = standupRow.feature_area || 'General';\nconst draftHours = 8;\nconst draftText = '[Pipemind] End-of-day time log \\u2014 draft for today:\\n\\nProject area: ' + featureArea + '\\nHours: ' + draftHours + 'h (reply \"edit Xh\" to change)\\nDescription: ' + (featureArea !== 'General' ? 'Work on the ' + featureArea + ' feature' : 'General development work') + '\\n\\nReply:\\n\\u2022 yes \\u2014 log this entry to Clockify\\n\\u2022 edit 6h \\u2014 log with 6 hours instead\\n\\u2022 no \\u2014 skip for today';\n\nreturn [{ json: {\n  discord_id: dev.discord_id,\n  action,\n  info_message:     infoMessage,\n  draft_text:       draftText,\n  feature_area:     featureArea,\n  draft_hours:      draftHours\n} }];"
+        "jsCode": "const dev = $('Split Into Action Items').item.json;\nconst standupRow = $('Fetch Today Standup').item.json;\nconst clockifyResult = $json; // from Check Dev Clockify Today (may be error on continueOnFail)\n\nlet action = 'offer';\nlet infoMessage = '';\n\nif (dev.clockify_user_id) {\n  if (Array.isArray(clockifyResult) && clockifyResult.length > 0) {\n    // Developer already has time entries today \u2014 no offer needed\n    action = 'info_dm';\n    infoMessage = '[Pipemind] You already have time logged in Clockify for today \u2014 no action needed.';\n  } else if (!Array.isArray(clockifyResult)) {\n    // continueOnFail error \u2014 Clockify API unavailable for this developer\n    action = 'info_dm';\n    infoMessage = '[Pipemind] We could not check your Clockify time entries today. Please log your time manually if you have not already done so.';\n  }\n  // else: empty array \u2192 no entries yet \u2192 proceed with offer\n}\n// If no clockify_user_id, we always offer (developer not in Clockify)\n\nconst featureArea = standupRow.feature_area || 'General';\nconst draftHours = 8;\nconst draftText = '[Pipemind] End-of-day time log \\u2014 draft for today:\\n\\nProject area: ' + featureArea + '\\nHours: ' + draftHours + 'h (reply \"edit Xh\" to change)\\nDescription: ' + (featureArea !== 'General' ? 'Work on the ' + featureArea + ' feature' : 'General development work') + '\\n\\nReply:\\n\\u2022 yes \\u2014 log this entry to Clockify\\n\\u2022 edit 6h \\u2014 log with 6 hours instead\\n\\u2022 no \\u2014 skip for today';\n\nreturn [{ json: {\n  discord_id: dev.discord_id,\n  action,\n  info_message:     infoMessage,\n  draft_text:       draftText,\n  feature_area:     featureArea,\n  draft_hours:      draftHours\n} }];"
       }
     },
     {
@@ -669,7 +672,8 @@
                 "operation": "notEmpty"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -693,7 +697,8 @@
                 "operation": "notEmpty"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     }
@@ -732,7 +737,7 @@
         ],
         [
           {
-            "node": "Error — Roster Not Valid",
+            "node": "Error \u2014 Roster Not Valid",
             "type": "main",
             "index": 0
           }

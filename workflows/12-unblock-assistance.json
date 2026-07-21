@@ -1,5 +1,5 @@
 {
-  "name": "12 — F-06: Unblock Assistance",
+  "name": "12 \u2014 F-06: Unblock Assistance",
   "nodes": [
     {
       "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
@@ -63,13 +63,14 @@
                 "operation": "equals"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
     {
       "id": "d4e5f6a7-b8c9-0123-defa-234567890123",
-      "name": "Error — Roster Not Valid",
+      "name": "Error \u2014 Roster Not Valid",
       "type": "n8n-nodes-base.stopAndError",
       "typeVersion": 1,
       "position": [
@@ -134,7 +135,8 @@
                 "operation": "gt"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -233,7 +235,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const candidates = $('Aggregate Candidates').first().json.candidates;\n\n// Clockify primary source (pre-stripped to userId-only by Strip Clockify Fields)\nconst clockifyData = $('Strip Clockify Fields').first().json;\nconst clockifyOk = clockifyData.clockify_ok;\nconst clockifyUnavailable = new Set(clockifyData.clockify_off_ids);\n\n// Google Calendar secondary source (OOO = busy 6+ hours)\n// SC-06a: stricter source wins — if Calendar marks OOO, treat as not scheduled\nconst calRaw = $('Check Google Calendar OOO').first()?.json;\nconst calUnavailableEmails = new Set();\nlet calOk = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const [email, data] of Object.entries(calRaw.calendars)) {\n      if (Array.isArray(data.busy)) {\n        const isOOO = data.busy.some(p => {\n          const hours = (new Date(p.end) - new Date(p.start)) / 3_600_000;\n          return hours >= 6;\n        });\n        if (isOOO) calUnavailableEmails.add(email.toLowerCase());\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-18: both sources unavailable → fail-safe, no contacts, TL alert\nif (!clockifyOk && !calOk) {\n  return [{ json: { candidates: [], sc18_failsafe: true } }];\n}\n\n// Apply SC-06 / SC-06a: if either available source marks person as unavailable, exclude them\n// H-01: drop clockify_user_id and calendar_email from this point forward (only discord_id + feature_area)\nconst scheduled = [];\nfor (const c of candidates) {\n  let available = true;\n  if (clockifyOk && c.clockify_user_id) {\n    if (clockifyUnavailable.has(String(c.clockify_user_id))) available = false;\n  }\n  if (calOk && c.calendar_email) {\n    if (calUnavailableEmails.has(c.calendar_email.toLowerCase())) available = false;\n  }\n  if (!available) continue;\n  scheduled.push({ discord_id: c.discord_id, feature_area: c.feature_area, blocker_source: c.blocker_source });\n}\n\nreturn [{ json: { candidates: scheduled, sc18_failsafe: false } }];"
+        "jsCode": "const candidates = $('Aggregate Candidates').first().json.candidates;\n\n// Clockify primary source (pre-stripped to userId-only by Strip Clockify Fields)\nconst clockifyData = $('Strip Clockify Fields').first().json;\nconst clockifyOk = clockifyData.clockify_ok;\nconst clockifyUnavailable = new Set(clockifyData.clockify_off_ids);\n\n// Google Calendar secondary source (OOO = busy 6+ hours)\n// SC-06a: stricter source wins \u2014 if Calendar marks OOO, treat as not scheduled\nconst calRaw = $('Check Google Calendar OOO').first()?.json;\nconst calUnavailableEmails = new Set();\nlet calOk = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const [email, data] of Object.entries(calRaw.calendars)) {\n      if (Array.isArray(data.busy)) {\n        const isOOO = data.busy.some(p => {\n          const hours = (new Date(p.end) - new Date(p.start)) / 3_600_000;\n          return hours >= 6;\n        });\n        if (isOOO) calUnavailableEmails.add(email.toLowerCase());\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-18: both sources unavailable \u2192 fail-safe, no contacts, TL alert\nif (!clockifyOk && !calOk) {\n  return [{ json: { candidates: [], sc18_failsafe: true } }];\n}\n\n// Apply SC-06 / SC-06a: if either available source marks person as unavailable, exclude them\n// H-01: drop clockify_user_id and calendar_email from this point forward (only discord_id + feature_area)\nconst scheduled = [];\nfor (const c of candidates) {\n  let available = true;\n  if (clockifyOk && c.clockify_user_id) {\n    if (clockifyUnavailable.has(String(c.clockify_user_id))) available = false;\n  }\n  if (calOk && c.calendar_email) {\n    if (calUnavailableEmails.has(c.calendar_email.toLowerCase())) available = false;\n  }\n  if (!available) continue;\n  scheduled.push({ discord_id: c.discord_id, feature_area: c.feature_area, blocker_source: c.blocker_source });\n}\n\nreturn [{ json: { candidates: scheduled, sc18_failsafe: false } }];"
       }
     },
     {
@@ -256,7 +258,8 @@
                 "operation": "equals"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -308,7 +311,8 @@
                 "operation": "gt"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -434,7 +438,7 @@
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ JSON.stringify({ content: '[Pipemind] It looks like you may be running into a blocker on ' + $('Split Into Offer Items').item.json.feature_area + '. No pressure at all — just checking in to see if there is anything I can help with. Would you like some assistance?\\n\\nReply:\\n• yes — I want help\\n• no — I am fine, thanks' }) }}",
+        "body": "={{ JSON.stringify({ content: '[Pipemind] It looks like you may be running into a blocker on ' + $('Split Into Offer Items').item.json.feature_area + '. No pressure at all \u2014 just checking in to see if there is anything I can help with. Would you like some assistance?\\n\\nReply:\\n\u2022 yes \u2014 I want help\\n\u2022 no \u2014 I am fine, thanks' }) }}",
         "rawContentType": "application/json"
       }
     },
@@ -558,7 +562,7 @@
         ],
         [
           {
-            "node": "Error — Roster Not Valid",
+            "node": "Error \u2014 Roster Not Valid",
             "type": "main",
             "index": 0
           }

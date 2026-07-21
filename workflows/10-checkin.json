@@ -1,5 +1,5 @@
 {
-  "name": "10 — F-05: Developer Check-In",
+  "name": "10 \u2014 F-05: Developer Check-In",
   "nodes": [
     {
       "id": "schedule-trigger",
@@ -63,13 +63,14 @@
                 "operation": "equals"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
     {
       "id": "error-roster",
-      "name": "Error — Roster Not Valid",
+      "name": "Error \u2014 Roster Not Valid",
       "type": "n8n-nodes-base.stopAndError",
       "typeVersion": 1,
       "position": [
@@ -111,7 +112,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const rows = $input.all();\nif (rows.length === 0) {\n  return []; // No active, non-muted developers — exit gracefully\n}\nconst developers = rows.map(r => ({\n  discord_id:        r.json.discord_id,\n  name:              r.json.name,\n  clockify_user_id:  r.json.clockify_user_id  || null,\n  calendar_email:    r.json.calendar_email    || null,\n  heard_from_today:  r.json.heard_from_today  === true || r.json.heard_from_today  === 'true',\n  already_contacted: r.json.already_contacted === true || r.json.already_contacted === 'true'\n}));\nreturn [{ json: { developers } }];"
+        "jsCode": "const rows = $input.all();\nif (rows.length === 0) {\n  return []; // No active, non-muted developers \u2014 exit gracefully\n}\nconst developers = rows.map(r => ({\n  discord_id:        r.json.discord_id,\n  name:              r.json.name,\n  clockify_user_id:  r.json.clockify_user_id  || null,\n  calendar_email:    r.json.calendar_email    || null,\n  heard_from_today:  r.json.heard_from_today  === true || r.json.heard_from_today  === 'true',\n  already_contacted: r.json.already_contacted === true || r.json.already_contacted === 'true'\n}));\nreturn [{ json: { developers } }];"
       }
     },
     {
@@ -208,7 +209,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const developers = $('Aggregate & Guard Empty').first().json.developers;\n\n// --- Clockify primary source (pre-stripped to userId-only by Strip Clockify Fields) ---\nconst clockifyData = $('Strip Clockify Fields').first().json;\nconst clockifyOk = clockifyData.clockify_ok;\nconst clockifyUnavailable = new Set(clockifyData.clockify_off_ids);\n\n// --- Google Calendar secondary source (OOO = busy 6+ hours) ---\n// SC-06a: stricter source wins — if Calendar marks OOO, treat as not scheduled\nconst calRaw = $('Check Google Calendar OOO').first()?.json;\nconst calUnavailableEmails = new Set();\nlet calOk = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const [email, data] of Object.entries(calRaw.calendars)) {\n      if (Array.isArray(data.busy)) {\n        const isOOO = data.busy.some(p => {\n          const hours = (new Date(p.end) - new Date(p.start)) / 3_600_000;\n          return hours >= 6;\n        });\n        if (isOOO) calUnavailableEmails.add(email.toLowerCase());\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-18: both sources unavailable → fail-safe, no contacts, log for TL visibility\nif (!clockifyOk && !calOk) {\n  return [{ json: { missing_developers: [], sc18_failsafe: true } }];\n}\n\n// Build check-in list — SC-04/SC-05: no productivity reasoning; only schedule + heard-from\nconst missing = [];\nfor (const dev of developers) {\n  // Already heard from today (standup received)\n  if (dev.heard_from_today) continue;\n  // Already contacted today — DB UNIQUE guard also covers this at insert time\n  if (dev.already_contacted) continue;\n\n  // SC-06a: if either available source marks person as unavailable, skip them\n  let scheduled = true;\n  if (clockifyOk && dev.clockify_user_id) {\n    if (clockifyUnavailable.has(String(dev.clockify_user_id))) scheduled = false;\n  }\n  if (calOk && dev.calendar_email) {\n    if (calUnavailableEmails.has(dev.calendar_email.toLowerCase())) scheduled = false;\n  }\n  if (!scheduled) continue;\n\n  // H-01: only discord_id forwarded — name excluded from execution logs\n  missing.push({ discord_id: dev.discord_id });\n}\n\nreturn [{ json: { missing_developers: missing, sc18_failsafe: false } }];"
+        "jsCode": "const developers = $('Aggregate & Guard Empty').first().json.developers;\n\n// --- Clockify primary source (pre-stripped to userId-only by Strip Clockify Fields) ---\nconst clockifyData = $('Strip Clockify Fields').first().json;\nconst clockifyOk = clockifyData.clockify_ok;\nconst clockifyUnavailable = new Set(clockifyData.clockify_off_ids);\n\n// --- Google Calendar secondary source (OOO = busy 6+ hours) ---\n// SC-06a: stricter source wins \u2014 if Calendar marks OOO, treat as not scheduled\nconst calRaw = $('Check Google Calendar OOO').first()?.json;\nconst calUnavailableEmails = new Set();\nlet calOk = false;\ntry {\n  if (calRaw && typeof calRaw.calendars === 'object') {\n    calOk = true;\n    for (const [email, data] of Object.entries(calRaw.calendars)) {\n      if (Array.isArray(data.busy)) {\n        const isOOO = data.busy.some(p => {\n          const hours = (new Date(p.end) - new Date(p.start)) / 3_600_000;\n          return hours >= 6;\n        });\n        if (isOOO) calUnavailableEmails.add(email.toLowerCase());\n      }\n    }\n  }\n} catch (_) {}\n\n// SC-18: both sources unavailable \u2192 fail-safe, no contacts, log for TL visibility\nif (!clockifyOk && !calOk) {\n  return [{ json: { missing_developers: [], sc18_failsafe: true } }];\n}\n\n// Build check-in list \u2014 SC-04/SC-05: no productivity reasoning; only schedule + heard-from\nconst missing = [];\nfor (const dev of developers) {\n  // Already heard from today (standup received)\n  if (dev.heard_from_today) continue;\n  // Already contacted today \u2014 DB UNIQUE guard also covers this at insert time\n  if (dev.already_contacted) continue;\n\n  // SC-06a: if either available source marks person as unavailable, skip them\n  let scheduled = true;\n  if (clockifyOk && dev.clockify_user_id) {\n    if (clockifyUnavailable.has(String(dev.clockify_user_id))) scheduled = false;\n  }\n  if (calOk && dev.calendar_email) {\n    if (calUnavailableEmails.has(dev.calendar_email.toLowerCase())) scheduled = false;\n  }\n  if (!scheduled) continue;\n\n  // H-01: only discord_id forwarded \u2014 name excluded from execution logs\n  missing.push({ discord_id: dev.discord_id });\n}\n\nreturn [{ json: { missing_developers: missing, sc18_failsafe: false } }];"
       }
     },
     {
@@ -231,7 +232,8 @@
                 "operation": "gt"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -278,7 +280,8 @@
                 "operation": "equals"
               }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
@@ -320,7 +323,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// H-01: only discord_id forwarded — name was excluded from missing_developers\nconst { missing_developers } = $input.first().json;\nreturn missing_developers.map(dev => ({ json: { discord_id: dev.discord_id } }));"
+        "jsCode": "// H-01: only discord_id forwarded \u2014 name was excluded from missing_developers\nconst { missing_developers } = $input.first().json;\nreturn missing_developers.map(dev => ({ json: { discord_id: dev.discord_id } }));"
       }
     },
     {
@@ -463,7 +466,7 @@
         ],
         [
           {
-            "node": "Error — Roster Not Valid",
+            "node": "Error \u2014 Roster Not Valid",
             "type": "main",
             "index": 0
           }
