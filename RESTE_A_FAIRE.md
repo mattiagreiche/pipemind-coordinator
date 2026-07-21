@@ -102,6 +102,35 @@ utiliserait.
 - Écart doc-vs-code sur Jira (spec dit "retiré du scope", `04`/`05` l'appellent encore) — pas
   corrigé, juste noté.
 
+**Suite immédiate (même jour)** : `10`/`11`/`12` testés en direct via webhook manuel temporaire
+(ajouté, testé, retiré avant commit — jamais dans l'historique git). Les 3 tournent de bout en
+bout sans erreur (Clockify + Google Calendar inclus pour `10`/`11`), résultat "rien à faire"
+légitime avec les données de test actuelles (aucun `has_blocker=true` en base pour `12`, personne
+à contacter pour `10`/`11`) — pas un bug, juste un jeu de données de test creux. Aucun fix
+nécessaire, rien à committer.
+
+## État complet des workflows — 2026-07-21
+
+**✅ Confirmés fonctionnels (testés en direct)** :
+`00` (config validation) · `01` (approval gate) · `01b` (résolution — ✅/❌/✏️ toutes confirmées
+avec de vraies réactions Discord) · `02` (aggregation boundary) · `03` (TL interaction — tous les
+intents testés le 2026-07-21) · `04` (client report) · `07` (developer query) · `08` (memory
+reader) · `10` (developer check-in) · `11` (time-log offer) · `12` (unblock assistance, côté envoi
+d'offre) · `18` (Clockify sync, vraies données) · `19` (project-repo linking) · `20` (capacity
+query, structure confirmée).
+
+**⚠️ Logique correcte mais pas testé en direct, ou bloqué par credential externe** :
+`01c` (delivery executor — tourne mais échoue à la livraison réelle, Google OAuth incomplet) ·
+`05` (client Q&A — bugs corrigés, jamais retesté avec une vraie identité "client") · `06` (client
+welcome — jamais testé).
+
+**❌ Jamais testés / inactifs** :
+`09` (standup ingestion — bloqué Google Drive OAuth, inactif) · `13` (expiry janitor — toujours
+inactif, deux drafts périmés nettoyés à la main cette session faute de ça).
+
+**Seul blocage transversal restant : Google OAuth** (bloque `01c` et `09`). Tout le reste est soit
+déjà testé, soit juste jamais essayé faute de temps/identité de test — pas bloqué par un bug connu.
+
 ## Tests end-to-end 01b/01c — 2026-07-13 (soir), première exécution réelle de l'histoire du projet
 
 **Contexte** : après l'audit IF/Switch (voir section suivante), test réel de `01`/`01b`/`01c` en
@@ -410,6 +439,9 @@ Clockify tous configurés maintenant) et sections 1-3 plus bas à jour.
 - [x] Bot Pipemind ajouté au serveur Discord et aux channels privés `#client` / `#tl-approvals`
 
 ### Workflows n8n (logique validée)
+*Table historique (2026-06-30), obsolète (mentionne Ollama, retiré depuis) — voir la section
+"État complet des workflows — 2026-07-21" en haut du fichier pour le statut réel actuel.*
+
 Les workflows suivants reçoivent les messages Discord, vérifient l'identité via Postgres,
 et appliquent les règles de privacy — la logique est correcte jusqu'aux appels API externes.
 

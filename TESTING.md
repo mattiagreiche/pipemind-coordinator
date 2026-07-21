@@ -41,9 +41,9 @@ Teste tout ce qui s'adresse à un développeur, avec son propre compte Discord
 | Workflow | Comment tester | État |
 |---|---|---|
 | `07 — F-17: Developer Project-Status Query` | DM au bot ("what's the project status", "explain what you do") | ✅ Bug pairedItem corrigé (commit `3dd8e11`) — à retester après `git pull` |
-| `10 — F-05: Developer Check-In` | Attendre le déclenchement automatique, ou trigger manuel dans l'UI | ⚠️ Bloqué — `CLOCKIFY_WORKSPACE_ID` non configuré |
-| `11 — F-07: Time-Log Offer (EOD)` | Attendre `EOD_TIME`, ou trigger manuel | ⚠️ Bloqué — Clockify |
-| `12 — F-06: Unblock Assistance` | Répondre "yes"/"colleague"/"meeting"/"just-talk" à une offre d'aide | ⚠️ Bloqué — Clockify (le workflow 12 qui *envoie* l'offre). Le traitement de la réponse côté `01b` a eu un bug de branches inversées (offre trouvée → skip au lieu de traiter) corrigé le 2026-07-13, mais **jamais testé en conditions réelles**, même via simulation — priorité #1 de la prochaine session, avec les fixs `01b` de ce soir |
+| `10 — F-05: Developer Check-In` | Attendre le déclenchement automatique (10h), ou webhook manuel temporaire pour un test ponctuel | ✅ Chaîne complète testée le 2026-07-21 (Clockify + Google Calendar inclus), résultat "personne à contacter" légitime avec les données actuelles. Le vrai scénario "check-in envoyé → dev répond" côté Discord jamais exercé (aucun cas déclenché encore) |
+| `11 — F-07: Time-Log Offer (EOD)` | Attendre `EOD_TIME` (17h), ou webhook manuel temporaire | ✅ Chaîne complète testée le 2026-07-21, même résultat "rien à faire" légitime |
+| `12 — F-06: Unblock Assistance` | Répondre "yes"/"colleague"/"meeting"/"just-talk" à une offre d'aide | ✅ Côté envoi d'offre testé le 2026-07-21 (chaîne complète, 0 candidat bloqué — confirmé en base, pas un bug). Le bug de branches inversées côté réponse (`01b`) reste corrigé depuis le 2026-07-13 mais le **flux de réponse dev (yes/colleague/meeting/just-talk) reste jamais exercé en conditions réelles**, faute d'offre active à répondre |
 
 ### Mattia jouant le rôle "Client"
 
