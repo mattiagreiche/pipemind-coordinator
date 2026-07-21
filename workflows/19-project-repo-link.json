@@ -35,7 +35,9 @@
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT\n  (SELECT COUNT(*) FROM pipemind.project_repos\n   WHERE clockify_project_id = $1\n     AND (repo_url IS NOT NULL OR intentionally_unlinked = true))::int AS already_resolved,\n  (SELECT COUNT(*) FROM pipemind.project_repos\n   WHERE clockify_project_id = $1\n     AND link_request_posted_at IS NOT NULL)::int AS request_already_sent\nFROM (SELECT 1) AS d;",
-        "queryReplacement": "={{ [$('Validate Input').first().json.clockify_project_id] }}"
+        "options": {
+          "queryReplacement": "={{ [$('Validate Input').first().json.clockify_project_id] }}"
+        }
       }
     },
     {
@@ -102,7 +104,9 @@
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO pipemind.project_repos (clockify_project_id, link_request_posted_at)\nVALUES ($1, now())\nON CONFLICT DO NOTHING;",
-        "queryReplacement": "={{ [$('Validate Input').first().json.clockify_project_id] }}"
+        "options": {
+          "queryReplacement": "={{ [$('Validate Input').first().json.clockify_project_id] }}"
+        }
       }
     }
   ],
