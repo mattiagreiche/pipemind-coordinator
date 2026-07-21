@@ -64,7 +64,8 @@
               }
             }
           ],
-          "combinator": "and"
+          "combinator": "and",
+          "options": {}
         }
       }
     },
@@ -136,7 +137,8 @@
               }
             }
           ],
-          "combinator": "and"
+          "combinator": "and",
+          "options": {}
         }
       }
     },
@@ -259,7 +261,8 @@
               }
             }
           ],
-          "combinator": "and"
+          "combinator": "and",
+          "options": {}
         }
       }
     },
@@ -312,7 +315,8 @@
               }
             }
           ],
-          "combinator": "and"
+          "combinator": "and",
+          "options": {}
         }
       }
     },

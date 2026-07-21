@@ -121,7 +121,8 @@
               }
             }
           ],
-          "combinator": "and"
+          "combinator": "and",
+          "options": {}
         }
       }
     },
