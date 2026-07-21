@@ -74,6 +74,13 @@ précise — n'importe qui avec accès au channel peut tester.
 4. **Jira / GitHub non configurés** — dégradent proprement (signal secondaire seulement,
    jamais bloquant). Note : la spec dit Jira "retiré du scope" mais `04`/`05` l'appellent encore
    réellement dans le code — écart doc-vs-code non corrigé.
+5. **Google OAuth (Drive/Gmail) — handshake jamais complété, à faire par Mattia.** Testé en
+   direct le 2026-07-21 : credential Gmail (`gmailOAuth2`) créé et câblé au node "Send Gmail" de
+   `01c`, mais Drive ET Gmail échouent tous les deux avec `"Unable to sign without access token"`.
+   Les credentials existent (client ID/secret) mais personne n'a cliqué "Connect my account" dans
+   l'éditeur n8n pour compléter l'autorisation Google. **Ces comptes Google appartiennent à
+   Mattia** — c'est à lui de faire ce clic sur son propre compte, pour les deux credentials
+   (Google Drive account + Gmail account).
 5. **Incohérence de langue** — messages codés en dur en français/anglais mélangés, contenu
    généré par Ollama en anglais par défaut (system prompt ne spécifie aucune langue cible).
    Pas bloquant, à uniformiser.

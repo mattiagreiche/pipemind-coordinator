@@ -131,6 +131,25 @@ inactif, deux drafts périmés nettoyés à la main cette session faute de ça).
 **Seul blocage transversal restant : Google OAuth** (bloque `01c` et `09`). Tout le reste est soit
 déjà testé, soit juste jamais essayé faute de temps/identité de test — pas bloqué par un bug connu.
 
+**Suite du 2026-07-21 (fin de session) — credential Gmail créé, OAuth toujours pas complété.**
+Un vrai credential `gmailOAuth2` ("Gmail account") a été créé et correctement câblé au node "Send
+Gmail" de `01c` (remplace l'ancien placeholder inexistant `pipemindGmail`). Test de livraison
+réelle tenté (draft `report` approuvé, `01c` invoqué) : **échec sur Drive ET Gmail, exactement la
+même erreur** `"Unable to sign without access token"` sur les deux. Diagnostic : les credentials
+existent (client ID/secret renseignés) mais le handshake OAuth n'a jamais été complété — il manque
+le clic sur "Connect my account" dans l'éditeur de credential n8n (fenêtre de consentement
+Google), pas juste le remplissage du formulaire.
+
+**Important : ces comptes Google (Drive/Gmail/Calendar) appartiennent au collègue (Mattia), pas à
+Justin** — c'est donc à lui de compléter cette étape, sur son propre compte Google, dans l'UI n8n.
+Reste à faire pour lui :
+1. Ouvrir le credential **"Google Drive account"** dans n8n → cliquer "Connect my account" →
+   autoriser dans la fenêtre Google qui s'ouvre
+2. Même chose pour **"Gmail account"**
+3. Confirmer que n8n affiche "Connected" pour les deux (pas juste les champs remplis)
+4. Redemander un test de livraison une fois fait (approuver un draft `report` dans
+   `#tl-approvals` déclenche `01c` automatiquement)
+
 ## Tests end-to-end 01b/01c — 2026-07-13 (soir), première exécution réelle de l'histoire du projet
 
 **Contexte** : après l'audit IF/Switch (voir section suivante), test réel de `01`/`01b`/`01c` en
@@ -400,10 +419,11 @@ Session du 2026-07-21 : pull des 27 commits du collègue (F-18/F-19/F-20) + ~10 
 corrigés + suite complète de tests Team Lead réussie + sync F-18 validé avec de vraies données
 (voir section dédiée en haut du fichier). Priorités pour la prochaine session, dans l'ordre :
 
-1. **Priorité #1 — Google OAuth (Drive/Gmail).** Seul vrai blocage restant pour une livraison
-   réelle de rapport/bienvenue client — inchangé depuis le 18 juillet. Credential Drive existe
-   mais token invalide (`Unable to sign without access token`), credential Gmail n'existe pas du
-   tout.
+1. **Priorité #1 — Google OAuth (Drive/Gmail), à faire par Mattia (ses comptes Google).**
+   Credential Gmail créé et câblé au node le 2026-07-21, mais le handshake OAuth n'a été complété
+   pour NI Drive NI Gmail — "Connect my account" jamais cliqué dans l'éditeur de credential n8n.
+   Les deux échouent avec `"Unable to sign without access token"`, testé en direct. Voir section
+   "Suite du 2026-07-21 (fin de session)" plus haut pour le détail des étapes.
 2. **Priorité #2 — tester `09`/`10`/`11`/`12` (standup, check-in, time-log, unblock) en direct.**
    Corrigés au niveau code depuis des semaines, jamais testés en conditions réelles. Clockify est
    maintenant confirmé configuré et fonctionnel (voir section F-18), donc plus de blocage connu
