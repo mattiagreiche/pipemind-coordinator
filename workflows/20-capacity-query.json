@@ -130,7 +130,7 @@
         400
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nconst now = new Date();\nconst sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);\nconst startIso = sevenDaysAgo.toISOString().slice(0, 10) + 'T00:00:00Z';\nconst endIso = now.toISOString().slice(0, 10) + 'T23:59:59Z';\n\nreturn j.targets.map(t => ({ json: {\n  ...t,\n  start_iso: startIso,\n  end_iso: endIso,\n  requester_role: j.requester_role,\n  safe_question: j.safe_question,\n} }));"
+        "jsCode": "const j = $input.first().json;\nconst now = new Date();\nconst sevenDaysAgo = new Date(now.getTime() - 21 * 24 * 60 * 60 * 1000);\nconst startIso = sevenDaysAgo.toISOString().slice(0, 10) + 'T00:00:00Z';\nconst endIso = now.toISOString().slice(0, 10) + 'T23:59:59Z';\n\nreturn j.targets.map(t => ({ json: {\n  ...t,\n  start_iso: startIso,\n  end_iso: endIso,\n  requester_role: j.requester_role,\n  safe_question: j.safe_question,\n} }));"
       }
     },
     {
