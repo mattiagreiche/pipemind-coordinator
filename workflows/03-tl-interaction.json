@@ -474,7 +474,7 @@
         550
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nconst handled = ['explain_request', 'report_request', 'status_question', 'link_project', 'capacity_query'];\nif (handled.includes(j.intent)) return [];\nreturn $input.all();"
+        "jsCode": "const j = $input.first().json;\nconst handled = ['explain_request', 'report_request', 'status_question', 'link_project', 'capacity_query', 'project_assignment_query'];\nif (handled.includes(j.intent)) return [];\nreturn $input.all();"
       }
     },
     {
