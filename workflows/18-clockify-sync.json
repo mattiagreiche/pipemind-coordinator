@@ -138,9 +138,9 @@
         "query": "={{ $json.project_sql }}",
         "options": {
           "queryReplacement": "={{ $json.project_params }}"
-        },
-        "alwaysOutputData": true
-      }
+        }
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "mark-inactive-projects",
@@ -179,9 +179,9 @@
         "query": "={{ $('Build Upsert Data').first().json.membership_sql }}",
         "options": {
           "queryReplacement": "={{ $('Build Upsert Data').first().json.membership_params }}"
-        },
-        "alwaysOutputData": true
-      }
+        }
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "mark-inactive-memberships",
@@ -220,9 +220,9 @@
         "query": "SELECT cp.clockify_project_id, cp.name\nFROM pipemind.clockify_projects cp\nWHERE cp.first_seen_at >= $1::TIMESTAMPTZ\n  AND NOT EXISTS (\n    SELECT 1 FROM pipemind.project_repos pr\n    WHERE pr.clockify_project_id = cp.clockify_project_id\n  );",
         "options": {
           "queryReplacement": "={{ [$('Build Upsert Data').first().json.triggered_at] }}"
-        },
-        "alwaysOutputData": true
-      }
+        }
+      },
+      "alwaysOutputData": true
     },
     {
       "id": "flag-unmapped-users",
@@ -241,7 +241,7 @@
       "typeVersion": 2,
       "position": [1900, 400],
       "parameters": {
-        "jsCode": "// Detect New Projects / Flag Unmapped Users use alwaysOutputData so a 0-row query\n// doesn't kill the chain — but that means a 0-row result arrives here as one\n// placeholder item with no clockify_project_id. Strip it before branching so\n// Split New Projects only ever sees real new-project rows.\nreturn $input.all().filter(i => i.json && i.json.clockify_project_id);"
+        "jsCode": "// Detect New Projects / Flag Unmapped Users use alwaysOutputData so a 0-row query\n// doesn't kill the chain — but that means a 0-row result arrives here as one\n// placeholder item with no clockify_project_id. n8n never invokes a downstream\n// node that receives zero input items (alwaysOutputData on THAT node doesn't\n// help — it only forces output when the node itself runs but its own operation\n// returns nothing). So never let the item count drop to zero here: emit a\n// single no_new_projects sentinel instead of an empty array when nothing real\n// survives the filter, so both \"Has New Projects?\" gates below always fire.\nconst real = $input.all().filter(i => i.json && i.json.clockify_project_id);\nif (real.length > 0) return real;\nreturn [{ json: { no_new_projects: true } }];"
       }
     },
     {
@@ -251,7 +251,7 @@
       "typeVersion": 2,
       "position": [2000, 300],
       "parameters": {
-        "jsCode": "if ($input.all().length === 0) return [];\nreturn $input.all();"
+        "jsCode": "if ($input.first().json.no_new_projects) return [];\nreturn $input.all();"
       }
     },
     {
@@ -260,9 +260,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [2000, 550],
-      "alwaysOutputData": true,
       "parameters": {
-        "jsCode": "if ($input.all().length > 0) return [];\nreturn [{ json: {} }];"
+        "jsCode": "if (!$input.first().json.no_new_projects) return [];\nreturn [{ json: {} }];"
       }
     },
     {
