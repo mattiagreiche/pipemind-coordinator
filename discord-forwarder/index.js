@@ -70,6 +70,9 @@ client.on(Events.MessageCreate, async (message) => {
     content: message.content,
     webhook_id: undefined,
     timestamp: new Date(message.createdTimestamp).toISOString(),
+    referenced_message: message.reference
+      ? { id: message.reference.messageId }
+      : undefined,
   };
 
   const payload = gatewayEnvelope('MESSAGE_CREATE', d);
