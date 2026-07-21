@@ -1,7 +1,9 @@
 # Pipemind — Plan de test end-to-end
 
-*Créé le 2026-07-11, mis à jour le 2026-07-13 (soir) après la session qui a trouvé la vraie
-cause probable du bug des réactions (voir point 1 de "Blocages connus"). Répartition des tests
+*Créé le 2026-07-11, mis à jour le 2026-07-21 après la session qui a pull les 27 commits F-18/
+F-19/F-20 du collègue, corrigé ~10 bugs (dont un dans `discord-forwarder` qui rendait le flow ✏️
+mort depuis le début du projet), et complété la première suite de tests Team Lead réussie de bout
+en bout (voir point 1 de "Blocages connus", maintenant entièrement résolu). Répartition des tests
 entre Justin et Mattia selon les rôles définis dans `config/roster.json`.*
 
 **Important** : Justin et Mattia font chacun tourner leur **propre instance locale séparée**
@@ -22,10 +24,14 @@ enregistré comme `team_lead` dans le roster).
 
 | Workflow | Comment tester | État |
 |---|---|---|
-| `03 — F-16: Team Lead Interaction` | Écrire dans `#tl-approvals` (ex: "what's the project status", "explain what you do") | ✅ Testé, fonctionne (2026-07-11, reconfirmé 2026-07-13) |
-| `04 — F-01: Client Progress Report` (on-demand) | Écrire "generate the weekly report" dans `#tl-approvals` (passe par `03`) | ✅ Testé, fonctionne (2026-07-11, reconfirmé 2026-07-13) |
-| Approval Gate (F-03) — réagir ✅ (approve) sur un draft `report` | Réagir ✅ sur un draft posté dans `#tl-approvals` | ✅ Validé le 2026-07-13 mais **via webhook simulé seulement** (Claude, pas une vraie réaction Discord) — à reconfirmer avec un vrai clic ✅. Livraison Drive bloquée séparément (credential sans token valide, voir "Blocages connus") |
-| Approval Gate (F-03) — réagir ❌ (reject) / ✏️ (edit) | Réagir ❌ ou ✏️ sur un draft | ⚠️ **Pas encore testé du tout**, même via simulation — priorité #1 de la prochaine session |
+| `03 — F-16: Team Lead Interaction` | Écrire dans `#tl-approvals` (ex: "what's the project status", "explain what you do", "sur quels projets travaille X ?", "lier X à github.com/...", "qui est bloqué ?") | ✅ Testé, fonctionne — tous les intents confirmés le 2026-07-21 (status générique anonymisé, capacity_query nommé → F-20, link_project → F-19, refus F-16.5 anti-fishing, explain_request) |
+| `04 — F-01: Client Progress Report` (on-demand) | Écrire "generate the weekly report" dans `#tl-approvals` (passe par `03`) | ✅ Testé, fonctionne (2026-07-11, reconfirmé 2026-07-13 et 2026-07-21) |
+| Approval Gate (F-03) — réagir ✅ (approve) sur un draft `report` | Réagir ✅ sur un draft posté dans `#tl-approvals` | ✅ Confirmé avec de vraies réactions Discord le 2026-07-18. Livraison Drive bloquée séparément (credential sans token valide, voir "Blocages connus") |
+| Approval Gate (F-03) — réagir ❌ (reject) | Réagir ❌ sur un draft | ✅ Confirmé avec de vraies réactions Discord le 2026-07-18 |
+| Approval Gate (F-03) — réagir ✏️ (edit) | Réagir ✏️ → répondre en **vrai Reply Discord** (clic droit → Reply, pas juste taper dans le canal) au message du draft avec le texte corrigé → réagir ✅ sur sa propre réponse | ✅ **Confirmé le 2026-07-21, première fois de l'histoire du projet.** Bloqué depuis le début par un bug de `discord-forwarder` (ne relayait jamais `referenced_message`, donc jamais aucun reply n'était reconnu comme tel) — corrigé, testé de bout en bout (edited_text sauvegardé → draft `approved`) |
+| `18 — F-18: Clockify Project & Assignment Sync` | Webhook manuel `POST /webhook/clockify-sync-manual` avec header `X-Sync-Secret`, ou attendre le schedule (2h) | ✅ Testé le 2026-07-21 avec de vraies données (36 projets, 47 memberships réels) |
+| `19 — F-19: Project-Repository Linking` | Se déclenche automatiquement via `18` sur un nouveau projet ; le TL répond "lier [projet] à github.com/..." dans `#tl-approvals` | ✅ Testé le 2026-07-21 (via `03`, format sans `https://` comme suggéré par le message du bot) |
+| `20 — F-20: Capacity & Bandwidth Query` | "sur quels projets travaille [nom] ?" / "combien d'heures a loggé [nom] ?" dans `#tl-approvals` | ✅ Testé le 2026-07-21 (réponse structurelle correcte ; données vides car pas encore de membership réelle liée à un développeur du roster) |
 
 ### Mattia — rôle `developer`
 
@@ -51,24 +57,23 @@ précise — n'importe qui avec accès au channel peut tester.
 | `05 — F-02: Client Question Answering` | Poser une question dans `#client` (ex: "what's the status of the auth feature") | ✅ Bug pairedItem corrigé (commit `3dd8e11`) — à retester après `git pull`. Note : un draft `qa_reply` a déjà été généré avec succès sur l'instance de Mattia le 2026-07-11 avant même ce fix — donc ce chemin précis ne l'avait peut-être pas touché. Un 2e bug (résidu d'auth cassé sur `Check Candidate Scheduled`, chemin teammate-escalation F-02.2/F-02.3) corrigé le 2026-07-13, pas encore testé. |
 | `06 — F-15: Client Welcome Message` | Se joindre au channel `#client` / premier message | ✅ Bug pairedItem corrigé (commit `3dd8e11`) — à retester après `git pull` |
 
-## Blocages connus (mis à jour 2026-07-13 soir)
+## Blocages connus (mis à jour 2026-07-21)
 
-1. **Les réactions Discord (✅/❌/✏️) ne remontaient jamais jusqu'à `01b`** — **priorité #1**,
-   probablement réglée le 2026-07-13. Le 2026-07-11, la théorie était un token de bot Discord
-   partagé entre Justin et Mattia sur deux instances locales. Cette théorie n'a jamais été
-   vérifiée directement — en testant `01b` en direct (webhook simulé, contournant Discord), on a
-   trouvé que le node `Classify Event` ne déballait jamais le wrapper `.body` du webhook n8n,
-   donc TOUT événement (réaction ou message) tombait systématiquement en `skip: true`. Ce bug de
-   code suffit à expliquer tout le symptôme observé — corrigé. **Reste à confirmer avec une vraie
-   réaction Discord** (pas encore fait) avant de considérer ça définitivement réglé. Voir
-   `RESTE_A_FAIRE.md` section "Tests end-to-end 01b/01c" pour le détail complet.
+1. **Les réactions Discord (✅/❌/✏️) ne remontaient jamais jusqu'à `01b`** — **entièrement résolu.**
+   ✅/❌ confirmées avec de vraies réactions le 2026-07-18 (le token Discord partagé n'a jamais été
+   la vraie cause — un bug de code dans `Classify Event`, voir `RESTE_A_FAIRE.md`). ✏️ (edit)
+   confirmé le 2026-07-21 : bug distinct trouvé dans `discord-forwarder/index.js`, qui ne relayait
+   jamais le champ `message.reference` (nécessaire pour détecter un vrai Discord "Reply") — corrigé,
+   testé de bout en bout avec succès. **Plus aucun blocage connu sur le canal d'approbation.**
 2. **Bug pairedItem `.item`/`.first()`** — corrigé partout (`03`: commit `59bea5d`,
    `05`/`06`/`07`: commit `3dd8e11`). Chaque instance doit `git pull` + réimporter pour en
    bénéficier.
-3. **`CLOCKIFY_WORKSPACE_ID` non configuré** — bloque `10`, `11`, `12`, `01b`, `01c`
-   (fail visiblement, par design).
+3. **`CLOCKIFY_WORKSPACE_ID`** — configuré et fonctionnel depuis au moins le 2026-07-21 (sync F-18
+   confirmé avec de vraies données). `10`/`11`/`12`/`01b`/`01c` restent à retester en direct malgré
+   ça (plus bloqués par Clockify, juste pas encore testés).
 4. **Jira / GitHub non configurés** — dégradent proprement (signal secondaire seulement,
-   jamais bloquant).
+   jamais bloquant). Note : la spec dit Jira "retiré du scope" mais `04`/`05` l'appellent encore
+   réellement dans le code — écart doc-vs-code non corrigé.
 5. **Incohérence de langue** — messages codés en dur en français/anglais mélangés, contenu
    généré par Ollama en anglais par défaut (system prompt ne spécifie aucune langue cible).
    Pas bloquant, à uniformiser.

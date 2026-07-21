@@ -1,11 +1,106 @@
 # Pipemind Coordinator — État du projet
 
-*Mis à jour le 2026-07-13 (soir) — premier test end-to-end réel de 01b/01c, qui a révélé que la
-vraie cause des "réactions Discord qui ne remontent jamais" (priorité #1 depuis le 2026-07-11)
-était un vrai bug de code dans `01b`, pas le token Discord partagé. Voir section "Tests end-to-end
-01b/01c" plus bas pour le détail complet. Audit IF/Switch (priorité #2, complété plus tôt le même
-jour) toujours vrai, voir section dédiée juste en dessous. Sections 2026-07-11 et 2026-07-05
-conservées, toujours vraies.*
+*Mis à jour le 2026-07-21 — pull des 27 commits du collègue (F-18 Clockify Sync, F-19 Project-Repo
+Linking, F-20 Capacity Query, Jira retiré du scope) suivi de ~10 bugs trouvés et corrigés en test
+réel, et de la première suite complète de tests Team Lead réussie de l'histoire du projet
+(status générique, capacity_query nommé, link_project, F-16.5 anti-fishing, ✏️ édition de draft,
+explain_request). Voir section dédiée juste en dessous. Sections antérieures conservées, toujours
+vraies sauf mention contraire dans la nouvelle section.*
+
+## Session 2026-07-21 — Pull F-18/F-19/F-20 du collègue + 10 bugs trouvés/corrigés + tests Team Lead complets
+
+**Contexte** : le collègue (Mattia) a poussé 27 commits indépendants le 2026-07-20, jamais revus
+avant ce pull. Trois nouvelles features P1 : **F-18** (sync périodique Clockify → Postgres,
+`pipemind.clockify_projects`/`project_memberships`, nouvelle migration `db/migrations/010-
+clockify-project-sync.sql`), **F-19** (demande de lien de dépôt GitHub au TL pour tout nouveau
+projet Clockify détecté), **F-20** (requête de capacité/disponibilité — heures loggées, projets
+assignés, congés — avec audit anti-classement SC-04). Jira totalement retiré du scope spec
+(SC-17/SC-19 réécrites) — Clockify devient la source d'autorité pour projets/assignations.
+Attention : `04`/`05` gardent quand même de vrais appels Jira actifs, contrairement à ce que dit
+le texte de spec réécrit — écart doc-vs-code noté, pas corrigé cette session.
+
+**Tous les bugs trouvés étaient dans le code neuf du collègue (F-18/F-19/F-20), sauf le dernier
+(discord-forwarder, bug préexistant depuis le début du projet)** :
+
+1. **Régression `JSON.stringify` sur `queryReplacement`** (6 occurrences, `18`+`03`) — exactement
+   le bug corrigé le 18 juillet (`e2a06a1`), réintroduit dans le code neuf. Commit `896a9be`
+   (partie 1) + `62c0b16`.
+2. **`queryReplacement` mal placé** (sibling de `query` au lieu de `parameters.options`) dans `19`
+   — cassait l'idempotency guard F-19.7 et l'INSERT du lien. Commit `b98f597`.
+3. **Fenêtre F-20 élargie de 7 à 21 jours** sans mise à jour de spec (RQ-S27 exige 7j) — revenu à
+   7j. Commit `c3f19b2`.
+4. **`project_assignment_query`** — nouvel intent du collègue révélant nom + projets assignés au
+   TL sans passer par l'audit anti-classement de F-20 ni être spécifié dans les specs. Décision
+   utilisateur : fusionné dans `capacity_query` (mots-clés projet gardés derrière le gate
+   `asksForNamed`, sinon absorbe les questions de statut génériques). Commit `541b8f0`.
+5. **F-18 fiabilité/sécurité** : câblage `Split New Projects` (splitInBatches) inversé sans boucle
+   de retour, garde webhook manuel fail-open si `SYNC_WEBHOOK_SECRET` absent, pagination Clockify
+   silencieuse au-delà de 200 résultats. Commit `62c0b16`.
+6. **F-16.5 (anti-fishing générique) supprimée par erreur** — le collègue a réécrit `Classify
+   Intent` (`03`) pour ajouter F-19/F-20 (commit `cfbceaa`) et a effacé au passage, sans s'en
+   rendre compte, le bloc regex EN/FR ajouté le 18 juillet (`8613c36`). "Qui est bloqué ?"
+   retournait `asksForNamed:false`. Restauré verbatim. Commit `896a9be` (partie 3).
+7. **`webhookId` manquant** sur le node "Manual Webhook" de `18` — n8n l'enregistrait avec un
+   chemin dynamique malformé (`<workflowId>/manual%20webhook/clockify-sync-manual`) au lieu de
+   `/webhook/clockify-sync-manual`. Commit `04fc6f1`.
+8. **Éclatement de tableau HTTP** — `Validate API Responses` (`18`) lisait `.first().json` en
+   supposant recevoir le tableau Clockify complet, mais le node HTTP Request de n8n éclate une
+   réponse-tableau en un item par élément. Résultat : croyait systématiquement l'API indisponible
+   dès qu'il y avait plus d'un projet. Confirmé avec de vraies données (36 projets, 47
+   memberships récupérés avec succès mais rejetés). Commit `04fc6f1`.
+9. **`WorkflowHasIssuesError` sur F-19** — `Sub-Workflow Input` (executeWorkflowTrigger 1.1) avait
+   `parameters:{}` vide au lieu de `inputSource: "passthrough"` (présent dans `20`, absent ici).
+   Commit `e4245b9`.
+10. **`clockify_last_sync` ne se mettait jamais à jour** — cause double : (a) `alwaysOutputData`
+    niché dans `parameters` au lieu du niveau racine sur 3 nodes (`Upsert Projects`/`Upsert
+    Memberships`/`Detect New Projects`), même classe de bug que #2 ; (b) une fois corrigé,
+    persistait quand même — **`alwaysOutputData` ne force pas l'exécution d'un node recevant 0
+    item en entrée**, il ne force qu'une sortie non-vide quand le node tourne mais que sa propre
+    opération ne retourne rien. Fix final : "Filter New Projects" émet un item sentinelle
+    `{no_new_projects:true}` plutôt qu'un tableau vide, garantissant que les deux gates "Has New
+    Projects?" reçoivent toujours ≥1 item. Commit `980d3db`.
+11. **`discord-forwarder` ne relayait jamais `referenced_message`** — bug préexistant depuis le
+    début du projet, pas du code neuf. Le flow ✏️ (édition de draft, F-03) dépend de
+    `d.referenced_message?.id` pour distinguer un vrai Discord "Reply" d'un message normal, mais
+    `discord-forwarder/index.js` construit l'objet `d` à la main sans jamais inclure ce champ.
+    **Le flow ✏️ n'avait jamais pu fonctionner dans ce déploiement** — le guard HIGH-01
+    (auteur=approbateur) et la sanitisation MED-03 dans `Sanitize Edit Content` (`01b`) étaient du
+    code mort depuis leur écriture. Corrigé (`message.reference?.messageId`), rebuild +
+    redémarrage du conteneur `discord-forwarder`. Commit `20737b1`.
+
+**Tests Team Lead réussis en direct, tous les 6, une première** (canal `#tl-approvals`) :
+- Question de statut générique → reste anonymisée (`status_question`, pas `capacity_query`)
+- "Sur quels projets travaille [nom] ?" → route vers F-20 correctement
+- "lier [projet] à github.com/..." → F-19 stocke le lien (format sans `https://`, comme suggéré
+  par le message du bot lui-même)
+- "Qui est bloqué ?" → refus F-16.5 confirmé
+- **✏️ Édition de draft complète (react ✏️ → Reply Discord → react ✅)** → **première fois de
+  l'histoire du projet**, `edited_text` sauvegardé, draft passé à `approved`
+- `explain_request` → réponse scopée à l'activité propre du demandeur, sans F-03
+
+**Sync F-18 testé avec de vraies données réelles** (webhook manuel, 2 exécutions consécutives) :
+36 projets Clockify réels synchronisés, 47 memberships, `clockify_last_sync` se met à jour à
+chaque run, comptes stables entre exécutions (pas de doublons).
+
+**Migration DB appliquée manuellement** : `db/migrations/010-clockify-project-sync.sql`
+(`clockify_projects`/`project_memberships`/`project_repos`) n'avait jamais été appliquée à
+l'instance Postgres locale de Justin (le collègue a dû tester sur sa propre instance séparée) —
+appliquée via `psql` en cours de session, additive/idempotente.
+
+**Nettoyage** : 2 drafts périmés (`pending` depuis le 12/18 juillet, jamais nettoyés car
+l'Expiry Janitor `13` est inactif) expirés manuellement avec la même requête que le Janitor
+utiliserait.
+
+**Reste ouvert après cette session** :
+- Les 36 projets Clockify réels n'ont **aucun lien de dépôt** (`project_repos` vide) — F-19 ne
+  redemande pas pour les projets déjà existants au premier sync (comportement voulu, cf. OQ-13
+  des specs) ; à seeder manuellement via `lier [projet] à github.com/...` si utile.
+- Google OAuth (Drive/Gmail) toujours incomplet — inchangé depuis le 18 juillet, voir section 1.
+- `09`/`10`/`11`/`12` (standup, check-in, time-log, unblock), `06` (Client Welcome), `13` (Expiry
+  Janitor lui-même, ironiquement, toujours inactif) et le vrai chemin Q&A de `05` (nécessite une
+  identité "client") toujours jamais testés en direct.
+- Écart doc-vs-code sur Jira (spec dit "retiré du scope", `04`/`05` l'appellent encore) — pas
+  corrigé, juste noté.
 
 ## Tests end-to-end 01b/01c — 2026-07-13 (soir), première exécution réelle de l'histoire du projet
 
@@ -270,27 +365,31 @@ répété :
 Résultat : code plus solide qu'avant l'audit, mais toujours **zéro test end-to-end réel** — voir
 "État global" ci-dessous pour ce que ça veut dire concrètement.
 
-## Prochaine session — reprendre ici (mis à jour 2026-07-13 soir)
+## Prochaine session — reprendre ici (mis à jour 2026-07-21)
 
-Session du 2026-07-13 : audit IF/Switch complété + premier test réel de `01b`/`01c`, qui a trouvé
-la vraie cause probable du bug des réactions Discord (voir section "Tests end-to-end 01b/01c" en
-haut du fichier). Priorités pour la prochaine session, dans l'ordre :
+Session du 2026-07-21 : pull des 27 commits du collègue (F-18/F-19/F-20) + ~10 bugs trouvés et
+corrigés + suite complète de tests Team Lead réussie + sync F-18 validé avec de vraies données
+(voir section dédiée en haut du fichier). Priorités pour la prochaine session, dans l'ordre :
 
-1. **Priorité #1 — retester Reject/Edit (`01b`) et F-06 Unblock Assistance de bout en bout.** Seul
-   le chemin Approve (draft `report`) a été validé ce soir après tous les fixes. Le fix du unwrap
-   `.body` dans `Classify Event` s'applique à tous les chemins (reject/edit/F-06) mais n'a été
-   confirmé que pour approve — à vérifier explicitement avant de considérer `01b` fiable.
-2. **Priorité #2 — confirmer avec une vraie réaction Discord (pas simulée).** Le fix du unwrap
-   `.body` devrait débloquer les réactions ✅/✏️/❌ réelles — la théorie du token Discord partagé
-   du 2026-07-11 n'a probablement jamais été le vrai problème. À tester avant de toucher à quoi
-   que ce soit côté infra Discord (pas besoin de couper un `discord-forwarder`).
-3. **Priorité #3 — credentials Google restants** : reconnecter le credential Google Drive existant
-   (`Unable to sign without access token` — token expiré/jamais connecté) et créer un vrai
-   credential Gmail OAuth2 (n'existe pas du tout actuellement). Les deux bloquent la livraison
-   réelle (Drive/Gmail) même si tout le reste du pipeline fonctionne.
+1. **Priorité #1 — Google OAuth (Drive/Gmail).** Seul vrai blocage restant pour une livraison
+   réelle de rapport/bienvenue client — inchangé depuis le 18 juillet. Credential Drive existe
+   mais token invalide (`Unable to sign without access token`), credential Gmail n'existe pas du
+   tout.
+2. **Priorité #2 — tester `09`/`10`/`11`/`12` (standup, check-in, time-log, unblock) en direct.**
+   Corrigés au niveau code depuis des semaines, jamais testés en conditions réelles. Clockify est
+   maintenant confirmé configuré et fonctionnel (voir section F-18), donc plus de blocage connu
+   pour `10`/`11`/`12`.
+3. **Priorité #3 — `06` (Client Welcome) et le vrai chemin Q&A de `05`** (nécessite une identité
+   "client" distincte de Justin — Mattia peut jouer ce rôle, voir `TESTING.md`).
+4. **Priorité #4 — seeder les liens de dépôt F-19** pour les 36 projets Clockify réels si utile
+   pour la suite (aucun n'a de lien actuellement, comportement voulu au premier sync, voir OQ-13
+   des specs) : `lier [projet] à github.com/org/repo` dans `#tl-approvals`, un par un.
+5. **Priorité #5 — activer `13` (Expiry Janitor)** — toujours inactif, deux drafts périmés ont dû
+   être nettoyés manuellement cette session faute de ça.
 
-Audit IF/Switch (2026-07-04→2026-07-13) : voir section dédiée pour le détail complet. Credentials
-manquants (Clockify, GitHub, Jira) et sections 1-3 plus bas aussi à jour.
+Audit IF/Switch (2026-07-04→2026-07-13) et session F-18/F-19/F-20 (2026-07-21) : voir sections
+dédiées pour le détail complet. Credentials manquants (Google OAuth uniquement — GitHub/Jira/
+Clockify tous configurés maintenant) et sections 1-3 plus bas à jour.
 
 ## Ce qui est fait
 
@@ -461,8 +560,10 @@ Sans ces credentials, les workflows s'arrêtent à mi-chemin.
 - [ ] **GitHub** : `GITHUB_OWNER`/`GITHUB_REPO` toujours vides au 2026-07-11 (confirmé — dégrade
       proprement depuis les fixs `continueOnFail` du 2026-07-11, mais aucun signal réel)
 - [ ] **Jira** : toujours vide au 2026-07-11 (dégrade proprement, aucun signal réel)
-- [ ] **Clockify** : `CLOCKIFY_WORKSPACE_ID` toujours vide au 2026-07-11 — **bloque visiblement**
-      (par design) les workflows `10`, `11`, `12`, `01b`, `01c`
+- [x] **Clockify** : configuré depuis au moins le 2026-07-21 — sync F-18 confirmé fonctionnel
+      avec de vraies données (36 projets, 47 memberships réels récupérés). `10`/`11`/`12`/`01b`/
+      `01c` toujours pas retestés en direct malgré ça (pas dans le scope Team Lead de cette
+      session).
 - [x] **Ollama** : modèle `llama3.2` téléchargé
 - [ ] **Google OAuth** (workflow 09 — standup ingestion, + Drive/Gmail pour `01c`) — état détaillé
       au 2026-07-13 soir :
@@ -482,12 +583,15 @@ Sans ces credentials, les workflows s'arrêtent à mi-chemin.
       repo depuis le réimport complet du 2026-07-11.
 
 ### 3. Activer les workflows restants dans n8n
-- [x] Workflow 00, 03, 05, 07, 01b — actifs depuis le 2026-07-11
+- [x] Workflow 00, 03, 05, 07, 01b, 18 — actifs (18 depuis le 2026-07-21, a un vrai trigger
+      schedule + webhook manuel)
 - [ ] Workflow 04 — Client Report — **volontairement inactif** (son Schedule Trigger vendredi
       n'est pas encore voulu en prod) ; reste appelable via `03` ("generate the weekly report")
       qui l'invoque en sous-workflow sans dépendre de son statut actif
-- [ ] Workflows 06, 08, 09, 10, 11, 12, 13 — sous-workflows/features non encore testées (08 n'a
-      pas besoin d'être actif, invoqué via Execute Workflow)
+- [ ] Workflows 06, 08, 09, 10, 11, 12, 13, **19, 20** — sous-workflows/features non encore
+      testées (08/19/20 n'ont pas besoin d'être actifs, invoqués via Execute Workflow — n8n refuse
+      même de les activer, "no node to start the workflow", normal pour un
+      `executeWorkflowTrigger` sans vrai trigger autonome)
 
 ### 4. Tests end-to-end — premiers vrais tests le 2026-07-11 (zéro test avant cette date)
 - [x] **TL Interaction (03)** : message dans `#tl-approvals` → intent classifié → réponse — validé
@@ -495,21 +599,22 @@ Sans ces credentials, les workflows s'arrêtent à mi-chemin.
       `08`(F-14)→`01`(Approval Gate)→`02`(Aggregation Boundary)→draft posté dans `#tl-approvals`.
       **Premier draft de l'historique du projet** (`draft_id 443fac91-857b-48fc-a297-5740deddb97b`),
       contenu vérifié safe (aucune attribution individuelle, honnête sur l'absence de données).
-- [ ] **Approbation d'un draft (réactions ✅/✏️/❌)** — **BLOQUÉ**, cause probable identifiée :
-      Justin et son collègue font chacun tourner leur propre instance locale mais partagent le
-      **même token de bot Discord** — deux connexions Gateway simultanées avec un seul token est
-      une cause connue de livraison d'événements incohérente (une session peut "voler" des
-      événements sans erreur visible). Les messages texte fonctionnaient parfaitement ce soir ;
-      seules les réactions ne remontaient jamais jusqu'à `01b` (webhook bien enregistré côté n8n,
-      confirmé). **Probablement pas un bug de code — à vérifier en premier la prochaine session**
-      en isolant un seul `discord-forwarder` actif à la fois. Si confirmé, la vraie solution est un
-      bot Discord distinct par développeur pour le dev local, pas un fix de workflow.
-- [ ] **Client Q&A (05)** : bloqué par le bug pairedItem jusqu'au 2026-07-11 (corrigé, commit
-      `3dd8e11`) — pas encore retesté après le fix
+- [x] **Approbation d'un draft (réactions ✅/✏️/❌)** — **RÉSOLU le 2026-07-18** (réactions ✅/❌
+      confirmées avec de vraies réactions Discord réelles, pas simulées — le mystère du token
+      partagé était un faux guide, la vraie cause était un bug de code déjà documenté plus haut).
+      **✏️ (edit) complété le 2026-07-21** : bug distinct trouvé (`discord-forwarder` ne relayait
+      jamais `referenced_message`, voir section "Session 2026-07-21" en haut de fichier) — corrigé,
+      testé en direct avec succès (react ✏️ → Reply Discord → texte corrigé sauvegardé → react ✅
+      → draft passé à `approved`). **Les 3 réactions sont maintenant toutes confirmées
+      fonctionnelles avec de vraies interactions Discord.**
+- [x] **Client Q&A (05)** : bug pairedItem corrigé (commit `3dd8e11`) — reste à retester le vrai
+      chemin Q&A avec une identité "client" distincte de Justin (pas fait le 2026-07-21, hors
+      scope Team Lead de cette session)
 - [ ] **Client Welcome (06)** : même fix pairedItem appliqué le 2026-07-11 — pas encore testé
-- [ ] **Developer Query (07)** : même fix — pas encore testé
+- [x] **Developer Query (07)** : testé avec succès le 2026-07-18 (F-14/Anthropic API)
 - [ ] **Unblock Assistance (F-06)** : DM "yes" à une offre de check-in → flux colleague/meeting/just-talk
-- [ ] Le chemin ✅ approve complet (jusqu'à un vrai envoi Gmail/Drive) — dépend du fix des réactions
+- [ ] Le chemin ✅ approve complet jusqu'à un vrai envoi Gmail/Drive — bloqué séparément par
+      Google OAuth (credential Drive sans token valide, Gmail inexistant), pas par les réactions
 
 ### 5. Bugs trouvés le 2026-07-11 (premier vrai test end-to-end), tous documentés en détail plus haut
 - [x] Chaîne `pairedItem` cassée (`.item` sans `pairedItem` en amont) dans `03`/`05`/`06`/`07` —
